@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ultra-plan/schema/skills.schema.json",
+  "title": "Skills",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["name", "source_url", "origin", "install", "rationale"],
+    "additionalProperties": false,
+    "properties": {
+      "name": {"type": "string", "minLength": 1},
+      "source_url": {"type": "string", "format": "uri"},
+      "origin": {"type": "string", "enum": ["local", "github", "anthropic"]},
+      "install": {"type": "string"},
+      "auth": {"type": ["string", "null"]},
+      "rationale": {"type": "string"},
+      "enabled": {"type": "boolean", "default": true}
+    }
+  }
+}

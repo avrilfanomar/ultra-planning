@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ultra-plan/schema/bundle.schema.json",
+  "title": "UltraPlanBundle",
+  "type": "object",
+  "required": ["task", "skills", "tools", "permissions", "plan_markdown", "prompt_recommendations"],
+  "additionalProperties": false,
+  "properties": {
+    "task": {"type": "string"},
+    "skills": {"$ref": "https://ultra-plan/schema/skills.schema.json"},
+    "tools": {"$ref": "https://ultra-plan/schema/tools.schema.json"},
+    "permissions": {"$ref": "https://ultra-plan/schema/permissions.schema.json"},
+    "plan_markdown": {"type": "string"},
+    "prompt_recommendations": {"type": "string"}
+  }
+}

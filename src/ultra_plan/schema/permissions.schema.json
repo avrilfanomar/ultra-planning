@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ultra-plan/schema/permissions.schema.json",
+  "title": "Permissions",
+  "type": "object",
+  "description": "Proposed settings.json patch. Free-form object so we can carry whatever the agent ranks; v1 stays permissive.",
+  "additionalProperties": true,
+  "properties": {
+    "allow": {"type": "array", "items": {"type": "string"}},
+    "deny": {"type": "array", "items": {"type": "string"}},
+    "ask": {"type": "array", "items": {"type": "string"}}
+  }
+}

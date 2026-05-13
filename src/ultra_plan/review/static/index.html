@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ultra-plan review</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>ultra-plan</h1>
+    <div id="task"></div>
+    <div class="actions">
+      <button id="expand-all" type="button">Expand all</button>
+      <button id="collapse-all" type="button">Collapse all</button>
+      <span class="spacer"></span>
+      <button id="save">Save</button>
+      <button id="confirm" class="primary">Confirm</button>
+      <span id="status"></span>
+    </div>
+  </header>
+  <main>
+    <div class="grid grid-row-1">
+      <details class="section section-prompt" data-section="prompt" open>
+        <summary><span class="dot"></span><span class="label">Prompt recommendations</span><span class="meta" id="recs-meta"></span></summary>
+        <div class="body"><textarea id="recs" rows="10"></textarea></div>
+      </details>
+
+      <details class="section section-plan" data-section="plan" open>
+        <summary><span class="dot"></span><span class="label">Plan</span><span class="meta" id="plan-meta"></span></summary>
+        <div class="body"><textarea id="plan" rows="10"></textarea></div>
+      </details>
+
+      <details class="section section-skills" data-section="skills" open>
+        <summary><span class="dot"></span><span class="label">Skills</span><span class="meta" id="skills-meta"></span></summary>
+        <div class="body" id="skills"></div>
+      </details>
+    </div>
+
+    <div class="grid grid-row-2">
+      <details class="section section-tools" data-section="tools" open>
+        <summary><span class="dot"></span><span class="label">Tools</span><span class="meta" id="tools-meta"></span></summary>
+        <div class="body" id="tools"></div>
+      </details>
+
+      <details class="section section-perms" data-section="perms" open>
+        <summary><span class="dot"></span><span class="label">Permissions</span><span class="meta">settings.json patch</span></summary>
+        <div class="body"><textarea id="perms" rows="10"></textarea></div>
+      </details>
+    </div>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
