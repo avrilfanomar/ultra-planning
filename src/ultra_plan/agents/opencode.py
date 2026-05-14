@@ -6,17 +6,16 @@ from ._extract import extract_bundle
 
 
 def run(prompt: str, *, allowed_tools: list[str]) -> dict:
-    # `opencode run` takes the prompt as positional arguments; it does not
-    # read from stdin. Use `--` so a prompt starting with "-" cannot be
+    # Pipe the prompt via stdin so a prompt starting with "-" can never be
     # misinterpreted as a CLI flag. `--dangerously-skip-permissions` keeps
     # the run non-interactive (opencode has no per-tool allowlist flag;
     # tool access is configured via agent definitions, not at runtime, so
     # `allowed_tools` is accepted for interface parity but not enforced here).
     del allowed_tools
-    cmd = ["opencode", "run", "--dangerously-skip-permissions", "--", prompt]
+    cmd = ["opencode", "run", "--dangerously-skip-permissions"]
     try:
         proc = subprocess.run(
-            cmd, capture_output=True, text=True, check=True
+            cmd, input=prompt, capture_output=True, text=True, check=True
         )
     except FileNotFoundError as e:
         raise RuntimeError(

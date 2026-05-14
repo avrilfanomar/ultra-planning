@@ -19,7 +19,7 @@ from tests.fixtures import valid_bundle
 def test_claude_pipes_prompt_via_stdin(monkeypatch):
     captured: dict = {}
 
-    def fake_run(cmd, *, input=None, capture_output=False, text=False, check=False):
+    def fake_run(cmd, *, input=None, **kwargs):
         captured["cmd"] = cmd
         captured["input"] = input
         result = MagicMock()
@@ -56,7 +56,7 @@ def test_opencode_pipes_prompt_via_stdin(monkeypatch):
 # --- Fix 4: robust envelope parser -------------------------------------------
 
 def test_claude_unknown_envelope_raises_descriptive_error(monkeypatch):
-    def fake_run(cmd, *, input=None, capture_output=False, text=False, check=False):
+    def fake_run(cmd, *, input=None, **kwargs):
         result = MagicMock()
         result.stdout = json.dumps({"weird_key": 1, "another": "x"})
         return result
