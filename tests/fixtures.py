@@ -4,6 +4,7 @@ from __future__ import annotations
 def valid_bundle() -> dict:
     return {
         "task": "demo",
+        "expected_outcome": "A working solution with tests and documentation.",
         "skills": [
             {
                 "name": "python-skill",

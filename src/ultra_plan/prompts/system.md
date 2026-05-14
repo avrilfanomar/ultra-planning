@@ -7,6 +7,7 @@ You are the planning agent for `ultra-plan`. Given a user task, you research the
 1. Read the task.
 2. For each enabled source block below, perform the queries it describes. Prefer high-signal results (stars, recency, official orgs).
 3. Compose a bundle with:
+   - `expected_outcome`: a clear description of what deliverables should be produced to consider the task complete.
    - `skills`: reusable agent skills (Claude skills, anthropic-skills repo, awesome-claude-code listings).
    - `tools`: MCP servers, CLIs, and libraries.
    - `permissions`: a proposed settings.json patch — `allow`, `deny`, `ask` arrays of permission strings.
@@ -28,6 +29,7 @@ The JSON MUST conform to this shape:
 ```json
 {
   "task": "<the original task verbatim>",
+  "expected_outcome": "A working API endpoint that accepts POST requests with user data and returns a JWT token. Include unit tests with >80% coverage and API documentation in OpenAPI format.",
   "skills": [
     {
       "name": "python-skill",

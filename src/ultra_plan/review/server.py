@@ -36,6 +36,7 @@ def write_derived_artifacts(out_dir: Path, bundle: dict) -> None:
     (out_dir / "permissions.json").write_text(json.dumps(bundle.get("permissions", {}), indent=2))
     (out_dir / "plan.md").write_text(bundle.get("plan_markdown", ""))
     (out_dir / "prompt-recommendations.md").write_text(bundle.get("prompt_recommendations", ""))
+    (out_dir / "expected-outcome.md").write_text(bundle.get("expected_outcome", ""))
 
 
 def copy_static(out_dir: Path) -> None:
@@ -105,24 +106,6 @@ class _Handler(BaseHTTPRequestHandler):
         if not path.exists():
             path = STATIC_DIR / name
         self._send(200, path.read_bytes(), ctype)
-
-    def do_PUT(self) -> None:
-        if self.path != "/bundle":
-            return self._send(404, b'{"error":"not found"}')
-        if not self._check_origin():
-            return self._send(403, json.dumps({"error": "forbidden origin"}).encode())
-        body = self._read_body()
-        if body is None:
-            return self._send(413, json.dumps({"error": "request body too large"}).encode())
-        try:
-            bundle = json.loads(body)
-        except json.JSONDecodeError as e:
-            return self._send(400, json.dumps({"error": str(e)}).encode())
-        err = _validate_or_error(bundle)
-        if err is not None:
-            return self._send(400, json.dumps({"error": err}).encode())
-        (self.out_dir / "bundle.json").write_text(json.dumps(bundle, indent=2))
-        self._send(200, b'{"ok":true}')
 
     def do_POST(self) -> None:
         if self.path != "/confirm":

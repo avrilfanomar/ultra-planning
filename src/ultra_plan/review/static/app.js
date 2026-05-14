@@ -15,6 +15,7 @@ function render() {
   $("perms").value = JSON.stringify(bundle.permissions || {}, null, 2);
   $("plan").value = bundle.plan_markdown || "";
   $("recs").value = bundle.prompt_recommendations || "";
+  $("outcome").value = bundle.expected_outcome || "";
   updateMeta();
 }
 
@@ -27,8 +28,10 @@ function updateMeta() {
   $("tools-meta").textContent = tools.length ? `${toolsOn}/${tools.length} enabled` : "none";
   const planLines = ($("plan").value.match(/\n/g) || []).length + ($("plan").value ? 1 : 0);
   const recsLines = ($("recs").value.match(/\n/g) || []).length + ($("recs").value ? 1 : 0);
+  const outcomeLines = ($("outcome").value.match(/\n/g) || []).length + ($("outcome").value ? 1 : 0);
   $("plan-meta").textContent = planLines ? `${planLines} lines` : "empty";
   $("recs-meta").textContent = recsLines ? `${recsLines} lines` : "empty";
+  $("outcome-meta").textContent = outcomeLines ? `${outcomeLines} lines` : "empty";
 }
 
 const skillFields = ["name", "source_url", "origin", "install", "rationale"];
@@ -100,6 +103,7 @@ function collect() {
   }
   bundle.plan_markdown = $("plan").value;
   bundle.prompt_recommendations = $("recs").value;
+  bundle.expected_outcome = $("outcome").value;
   return bundle;
 }
 
@@ -108,12 +112,6 @@ function setStatus(msg, err) {
   el.textContent = msg;
   el.className = err ? "err" : "ok";
 }
-
-$("save").onclick = async () => {
-  const b = collect();
-  const r = await fetch("/bundle", { method: "PUT", body: JSON.stringify(b) });
-  setStatus(r.ok ? "saved" : "save failed", !r.ok);
-};
 
 $("confirm").onclick = async () => {
   const b = collect();
@@ -128,7 +126,7 @@ $("collapse-all").onclick = () => {
   document.querySelectorAll("details").forEach((d) => (d.open = false));
 };
 
-["plan", "recs"].forEach((id) => {
+["plan", "recs", "outcome"].forEach((id) => {
   document.addEventListener("input", (e) => {
     if (e.target && e.target.id === id) updateMeta();
   });
