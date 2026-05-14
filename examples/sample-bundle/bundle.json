@@ -1,0 +1,30 @@
+{
+  "task": "Create a simple Python CLI calculator",
+  "expected_outcome": "A command-line calculator that accepts two numbers and an operation (+, -, *, /) and returns the result. Include unit tests and a README.",
+  "skills": [
+    {
+      "name": "python-skill",
+      "source_url": "https://github.com/anthropics/skills/tree/main/python",
+      "origin": "anthropic",
+      "install": "git clone https://github.com/anthropics/skills && cp -r skills/python ~/.claude/skills/",
+      "rationale": "Provides Python project scaffolding and best practices.",
+      "enabled": true
+    }
+  ],
+  "tools": [],
+  "permissions": {
+    "allow": [
+      "Write",
+      "Edit",
+      "Read",
+      "Bash(python:*)",
+      "Bash(pytest:*)"
+    ],
+    "deny": [
+      "Bash(rm:*)",
+      "Bash(sudo:*)"
+    ]
+  },
+  "plan_markdown": "## Implementation Plan\n\n1. **Project Setup**\n   - Create project directory structure\n   - Setup `pyproject.toml` or `setup.py`\n   - Initialize git repository\n\n2. **Implement Calculator**\n   - Create `calculator.py` with main logic\n   - Implement argument parsing with `argparse`\n   - Add input validation and error handling\n   - Support operations: +, -, *, /\n\n3. **Testing**\n   - Create `test_calculator.py`\n   - Write unit tests for each operation\n   - Add edge case tests (division by zero, invalid input)\n   - Ensure test coverage >80%\n\n4. **Documentation**\n   - Create README.md with usage examples\n   - Add docstrings to functions\n   - Include installation instructions\n\n5. **Verification**\n   - Run tests with pytest\n   - Test CLI manually with various inputs\n   - Verify all edge cases work correctly",
+  "prompt_recommendations": "- Follow PEP 8 style guidelines for Python code\n- Use type hints for function parameters and return values\n- Include comprehensive error messages for invalid inputs\n- Make the CLI user-friendly with clear help text\n- Ensure the code is well-documented with docstrings\n- Use pytest for testing with clear test names\n- Handle edge cases explicitly (e.g., division by zero)\n- Create a complete README with examples\n- Keep functions small and focused (single responsibility)\n- Use argparse for professional CLI argument handling"
+}
