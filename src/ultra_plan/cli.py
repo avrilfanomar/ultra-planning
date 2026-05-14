@@ -5,9 +5,10 @@ import sys
 from pathlib import Path
 
 from .orchestrator import default_out_dir, review_existing, run_plan
+from .executor import execute_bundle
 from .prompts import resolve_sources
 
-_SUBCOMMANDS = {"run", "review"}
+_SUBCOMMANDS = {"run", "review", "execute"}
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -27,6 +28,12 @@ def _build_parser() -> argparse.ArgumentParser:
     rev.add_argument("dir", help="Bundle directory.")
     rev.add_argument("--port", type=int, default=7777)
     rev.add_argument("--no-browser", action="store_true")
+
+    exe = sub.add_parser("execute", help="Execute a prepared bundle with the selected agent.")
+    exe.add_argument("dir", help="Bundle directory containing bundle.json.")
+    exe.add_argument("--agent", choices=["claude", "opencode"], default="claude")
+    exe.add_argument("--headless", action="store_true", help="Run in non-interactive mode.")
+    exe.add_argument("--cwd", default=None, help="Working directory for execution (defaults to bundle dir).")
 
     return p
 
@@ -48,6 +55,17 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "review":
         review_existing(Path(args.dir), port=args.port, open_browser=not args.no_browser)
+        return 0
+
+    if args.command == "execute":
+        bundle_dir = Path(args.dir)
+        cwd = Path(args.cwd) if args.cwd else None
+        execute_bundle(
+            bundle_dir,
+            agent=args.agent,
+            interactive=not args.headless,
+            cwd=cwd,
+        )
         return 0
 
     sources = resolve_sources(args.sources, args.preset)
