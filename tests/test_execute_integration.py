@@ -34,7 +34,7 @@ def test_execute_command_integration(tmp_path: Path, monkeypatch: pytest.MonkeyP
     # Verify command structure
     cmd = call_args[0][0]
     assert cmd[0] == "claude"
-    assert "-p" in cmd
+    assert "--print" in cmd
     assert "--output-format" in cmd
     assert "--allowedTools" in cmd
 
@@ -43,13 +43,15 @@ def test_execute_command_integration(tmp_path: Path, monkeypatch: pytest.MonkeyP
     tools = cmd[tools_idx + 1]
     assert "mcp__postgres-mcp__*" in tools
 
-    # Verify prompt was passed correctly
-    kwargs = call_args[1]
-    prompt = kwargs.get("input", "")
+    # Verify prompt was passed correctly (last positional arg)
+    prompt = cmd[-1]
     assert bundle["task"] in prompt
     assert bundle["prompt_recommendations"] in prompt
     assert bundle["expected_outcome"] in prompt
     assert bundle["plan_markdown"] in prompt
+
+    # settings.json must be written into bundle_dir
+    assert (bundle_dir / "settings.json").exists()
 
 
 def test_execute_with_opencode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -72,6 +74,9 @@ def test_execute_with_opencode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     assert cmd[0] == "opencode"
     assert "run" in cmd
     assert "--dangerously-skip-permissions" in cmd
+
+    # opencode.json must be written into bundle_dir
+    assert (bundle_dir / "opencode.json").exists()
 
 
 def test_execute_missing_bundle(tmp_path: Path, capsys):

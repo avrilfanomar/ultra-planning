@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from ultra_plan.executor import _build_tool_list, _build_execution_prompt, execute_bundle
+from ultra_plan.executor import _build_tool_list, _build_execution_prompt, execute_bundle, _materialize_agent_config
 from tests.fixtures import valid_bundle
 
 
@@ -103,7 +103,7 @@ def test_execute_bundle_creates_prompt(tmp_path: Path, monkeypatch: pytest.Monke
 
     # Verify command structure
     assert cmd[0] == "claude"
-    assert "-p" in cmd
+    assert "--print" in cmd
     assert "--output-format" in cmd
     assert "json" in cmd
     assert "--allowedTools" in cmd
@@ -113,7 +113,43 @@ def test_execute_bundle_creates_prompt(tmp_path: Path, monkeypatch: pytest.Monke
     tools_str = cmd[tool_arg_idx + 1]
     assert "mcp__postgres-mcp__*" in tools_str
 
-    # Verify prompt contains bundle content
-    prompt = kwargs.get("input", "")
+    # Verify prompt contains bundle content (passed as last argument)
+    prompt = cmd[-1]
     assert bundle["task"] in prompt
     assert bundle["prompt_recommendations"] in prompt
+
+    # settings.json should be written into the bundle directory (not a temp dir)
+    settings_file = tmp_path / "settings.json"
+    assert settings_file.exists(), "settings.json should be written into bundle_dir"
+    settings = json.loads(settings_file.read_text())
+    assert "permissions" in settings
+
+
+def test_materialize_agent_config_claude(tmp_path: Path):
+    """_materialize_agent_config writes settings.json for claude."""
+    bundle = valid_bundle()
+    result = _materialize_agent_config(bundle, tmp_path, "claude")
+    assert result is not None
+    assert result == tmp_path / "settings.json"
+    assert result.exists()
+    data = json.loads(result.read_text())
+    assert "permissions" in data
+
+
+def test_materialize_agent_config_opencode(tmp_path: Path):
+    """_materialize_agent_config writes opencode.json for opencode."""
+    bundle = valid_bundle()
+    result = _materialize_agent_config(bundle, tmp_path, "opencode")
+    assert result is not None
+    assert result == tmp_path / "opencode.json"
+    assert result.exists()
+    data = json.loads(result.read_text())
+    assert "$schema" in data
+
+
+def test_materialize_agent_config_no_content_returns_none(tmp_path: Path):
+    """When bundle has no permissions/mcp, no file is written for claude."""
+    bundle = {"task": "x"}
+    result = _materialize_agent_config(bundle, tmp_path, "claude")
+    assert result is None
+    assert not (tmp_path / "settings.json").exists()

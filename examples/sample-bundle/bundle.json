@@ -11,7 +11,17 @@
       "enabled": true
     }
   ],
-  "tools": [],
+  "tools": [
+    {
+      "name": "filesystem-mcp",
+      "kind": "mcp",
+      "enabled": true,
+      "source_url": "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem",
+      "install": "npx -y @modelcontextprotocol/server-filesystem",
+      "rationale": "Provides read/write filesystem access to the MCP client via the Model Context Protocol, exposing the /tmp directory for sandboxed file operations during execution.",
+      "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+    }
+  ],
   "permissions": {
     "allow": [
       "Write",

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
-import tempfile
 from pathlib import Path
+
+from .agent_setup import build_claude_settings, build_opencode_config, build_skills_context
 
 
 def _build_tool_list(tools: list[dict]) -> list[str]:
@@ -35,6 +37,12 @@ def _build_execution_prompt(bundle: dict) -> str:
 
     parts = []
 
+    # Prepend skills context when present
+    skills_ctx = build_skills_context(bundle)
+    if skills_ctx:
+        parts.append(skills_ctx)
+        parts.append("\n")
+
     if prompt_recs:
         parts.append("# Instructions\n")
         parts.append(prompt_recs)
@@ -56,26 +64,36 @@ def _build_execution_prompt(bundle: dict) -> str:
     return "\n".join(parts)
 
 
-def _write_temp_settings(permissions: dict) -> Path:
-    """Write a temporary settings.json with the bundle permissions."""
-    temp_dir = Path(tempfile.mkdtemp(prefix="ultra-plan-exec-"))
-    settings_file = temp_dir / "settings.json"
+def _materialize_agent_config(bundle: dict, bundle_dir: Path, agent: str) -> Path | None:
+    """Write agent configuration into *bundle_dir* and return the file path.
 
-    # Build a minimal settings structure with the permissions
-    settings = {
-        "permissions": permissions
-    }
+    Returns the written file's path, or None when nothing was written (e.g.
+    the generated config carries no meaningful content beyond the $schema stub).
+    """
+    if agent == "claude":
+        cfg = build_claude_settings(bundle)
+        if not cfg:
+            return None
+        dest = bundle_dir / "settings.json"
+        dest.write_text(json.dumps(cfg, indent=2))
+        return dest
+    elif agent == "opencode":
+        cfg = build_opencode_config(bundle)
+        # Only write when there is content beyond the bare $schema key
+        if not any(k != "$schema" for k in cfg):
+            return None
+        dest = bundle_dir / "opencode.json"
+        dest.write_text(json.dumps(cfg, indent=2))
+        return dest
+    return None
 
-    settings_file.write_text(json.dumps(settings, indent=2))
-    return settings_file
 
-
-def execute_claude(bundle: dict, *, interactive: bool = True, cwd: Path | None = None) -> subprocess.CompletedProcess:
+def execute_claude(bundle: dict, *, interactive: bool = True, cwd: Path | None = None, bundle_dir: Path | None = None) -> subprocess.CompletedProcess:
     """Execute a task using the Claude CLI with bundle configuration.
 
     Args:
         bundle: The ultra-plan bundle containing task, tools, permissions, etc.
-        interactive: If True, run interactively. If False, run headless with --output-format json.
+        interactive: If True, run interactively. If False, run headless with --print and --output-format json.
         cwd: Working directory for the execution (defaults to current directory).
 
     Returns:
@@ -89,38 +107,37 @@ def execute_claude(bundle: dict, *, interactive: bool = True, cwd: Path | None =
     tool_list = _build_tool_list(tools)
 
     # Build base command
-    cmd = ["claude", "-p"]
+    cmd = ["claude"]
 
+    # Add print flag for non-interactive mode
     if not interactive:
+        cmd.append("--print")
         cmd.extend(["--output-format", "json"])
 
     # Add allowed tools if any
     if tool_list:
         cmd.extend(["--allowedTools", ",".join(tool_list)])
 
+    # Use materialized settings.json from bundle_dir if available
+    if bundle_dir is not None:
+        settings_file = bundle_dir / "settings.json"
+        if settings_file.exists():
+            cmd.extend(["--settings", str(settings_file)])
+
     # Prepare environment
     env = os.environ.copy()
 
-    # Handle permissions by writing a temporary settings file
-    permissions = bundle.get("permissions", {})
-    settings_file = None
-    if permissions:
-        settings_file = _write_temp_settings(permissions)
-        # Note: Claude CLI doesn't have a --settings flag, so we'd need to
-        # either modify ~/.claude/settings.json or use CLAUDE_SETTINGS_PATH
-        # For now, just log the settings location
-        print(f"[ultra-plan] Generated settings at: {settings_file}")
-        print(f"[ultra-plan] Note: You may need to manually apply permissions from this file")
-
     print(f"[ultra-plan] Executing with {len(tool_list)} allowed tools")
-    print(f"[ultra-plan] Command: {' '.join(cmd)}")
+    print(f"[ultra-plan] Command: {' '.join(cmd)} <prompt>")
+
+    # Add prompt as the final positional argument
+    cmd.append(prompt)
 
     try:
         if interactive:
-            # For interactive mode, use stdin for prompt and let user interact
+            # For interactive mode, let user interact with the session
             proc = subprocess.run(
                 cmd,
-                input=prompt,
                 text=True,
                 check=True,
                 env=env,
@@ -130,7 +147,6 @@ def execute_claude(bundle: dict, *, interactive: bool = True, cwd: Path | None =
             # For non-interactive mode, capture output
             proc = subprocess.run(
                 cmd,
-                input=prompt,
                 capture_output=True,
                 text=True,
                 check=True,
@@ -145,22 +161,14 @@ def execute_claude(bundle: dict, *, interactive: bool = True, cwd: Path | None =
         raise RuntimeError(
             f"claude CLI failed with exit code {e.returncode}: {stderr_tail}"
         ) from e
-    finally:
-        # Clean up temp settings file
-        if settings_file and settings_file.parent.exists():
-            try:
-                settings_file.unlink()
-                settings_file.parent.rmdir()
-            except Exception:
-                pass
 
 
-def execute_opencode(bundle: dict, *, interactive: bool = True, cwd: Path | None = None) -> subprocess.CompletedProcess:
+def execute_opencode(bundle: dict, *, interactive: bool = True, cwd: Path | None = None, bundle_dir: Path | None = None) -> subprocess.CompletedProcess:
     """Execute a task using the opencode CLI with bundle configuration.
 
     Args:
         bundle: The ultra-plan bundle containing task, tools, permissions, etc.
-        interactive: If True, run interactively. If False, run headless.
+        interactive: If True, run interactively. If False, run headless with --dangerously-skip-permissions.
         cwd: Working directory for the execution (defaults to current directory).
 
     Returns:
@@ -174,11 +182,28 @@ def execute_opencode(bundle: dict, *, interactive: bool = True, cwd: Path | None
 
     if not interactive:
         cmd.append("--dangerously-skip-permissions")
+        cmd.extend(["--format", "json"])
 
-    cmd.extend(["--", prompt])
+    # Add prompt as positional argument (using -- separator for safety)
+    cmd.append("--")
+    cmd.append(prompt)
 
     print(f"[ultra-plan] Executing with opencode")
     print(f"[ultra-plan] Command: opencode run -- <prompt>")
+
+    # Determine effective cwd and ensure opencode.json is discoverable.
+    # When no explicit cwd is given, run from bundle_dir so opencode picks up
+    # opencode.json via its "current dir → git root" lookup.
+    # When an explicit cwd is given, copy opencode.json there first.
+    effective_cwd = cwd
+    if bundle_dir is not None:
+        opencode_cfg = bundle_dir / "opencode.json"
+        if opencode_cfg.exists():
+            if cwd is None:
+                effective_cwd = bundle_dir
+            elif cwd.resolve() != bundle_dir.resolve():
+                # Copy opencode.json to the explicit cwd so opencode discovers it
+                shutil.copy(str(opencode_cfg), str(cwd / "opencode.json"))
 
     try:
         if interactive:
@@ -186,7 +211,7 @@ def execute_opencode(bundle: dict, *, interactive: bool = True, cwd: Path | None
                 cmd,
                 text=True,
                 check=True,
-                cwd=cwd,
+                cwd=effective_cwd,
             )
         else:
             proc = subprocess.run(
@@ -194,7 +219,7 @@ def execute_opencode(bundle: dict, *, interactive: bool = True, cwd: Path | None
                 capture_output=True,
                 text=True,
                 check=True,
-                cwd=cwd,
+                cwd=effective_cwd,
             )
         return proc
     except FileNotFoundError as e:
@@ -230,13 +255,16 @@ def execute_bundle(
 
     bundle = json.loads(bundle_file.read_text())
 
+    # Materialize agent-specific config files into bundle_dir before launching.
+    _materialize_agent_config(bundle, bundle_dir, agent)
+
     # Default to bundle directory as working directory
     if cwd is None:
         cwd = bundle_dir
 
     if agent == "claude":
-        return execute_claude(bundle, interactive=interactive, cwd=cwd)
+        return execute_claude(bundle, interactive=interactive, cwd=cwd, bundle_dir=bundle_dir)
     elif agent == "opencode":
-        return execute_opencode(bundle, interactive=interactive, cwd=cwd)
+        return execute_opencode(bundle, interactive=interactive, cwd=cwd, bundle_dir=bundle_dir)
     else:
         raise ValueError(f"Unknown agent: {agent}")

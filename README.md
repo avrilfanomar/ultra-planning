@@ -69,6 +69,7 @@ ultra-plan CLI (thin orchestrator)
 ```
 ultra-plan execute <dir> [--agent claude|opencode]
    1. Load bundle.json from the specified directory
+   1a. Materialize agent config — write settings.json (Claude) or opencode.json (opencode) into the bundle directory from the bundle's permissions and MCP tools.
    2. Extract enabled tools, permissions, and prompt recommendations
    3. Build execution prompt from:
       - prompt_recommendations (instructions)
@@ -120,6 +121,8 @@ The `execute` command:
 - For Claude: uses `claude -p --allowedTools <list>`
 - For opencode: uses `opencode run --`
 
+After execute runs, the bundle directory gains a `settings.json` (for Claude) or `opencode.json` (for opencode) containing the materialized permissions and MCP server configuration derived from the bundle. For opencode, the bundle directory is used as the working directory so opencode auto-discovers the config via its current-dir to git-root lookup. When `--cwd` is overridden, `opencode.json` is copied into that directory before launch.
+
 ### Interactive vs Headless
 
 By default, `execute` runs **interactively** — you can see the agent's output and interact with it in real-time.
@@ -134,6 +137,6 @@ This runs the agent non-interactively and captures JSON output.
 
 ### Skills and Permissions
 
-**Skills**: The execute command assumes any required skills are already installed. The bundle's `skills[].install` field documents how to install them — this must be done manually before execution.
+**Skills**: The execute command inlines each enabled skill's name, rationale, and source URL into the execution prompt as a `# Skills` section. No manual install step is required — the agent receives static awareness of the configured skills as context.
 
-**Permissions**: The execute command generates a temporary `settings.json` with the bundle's permissions for reference. For Claude CLI, you may need to manually apply these to your `~/.claude/settings.json` before execution, or approve them interactively during execution.
+**Permissions**: The execute command auto-generates `settings.json` (for Claude) or `opencode.json` (for opencode) in the bundle directory before launch. For Claude, the file is passed via `--settings`. For opencode, the bundle directory is used as the working directory so opencode discovers the config automatically via its current-dir to git-root lookup. When `--cwd` is overridden, `opencode.json` is copied into that directory before launch.

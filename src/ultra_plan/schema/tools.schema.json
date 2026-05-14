@@ -14,7 +14,8 @@
       "install": {"type": "string"},
       "auth": {"type": ["string", "null"]},
       "rationale": {"type": "string"},
-      "enabled": {"type": "boolean", "default": true}
+      "enabled": {"type": "boolean", "default": true},
+      "command": {"type": "array", "items": {"type": "string"}}
     }
   }
 }
