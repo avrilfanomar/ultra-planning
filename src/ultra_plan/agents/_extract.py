@@ -21,6 +21,19 @@ def extract_bundle(text: str) -> dict:
         blob = re.sub(r"^```(?:json)?\s*", "", blob)
         blob = re.sub(r"\s*```$", "", blob)
     try:
-        return json.loads(blob)
+        bundle = json.loads(blob)
     except json.JSONDecodeError as e:
         raise BundleExtractionError(f"Bundle was not valid JSON: {e}\nPayload:\n{blob[:2000]}") from e
+
+    # Normalize prompt_recommendations: convert list to string
+    # Some agents may emit [] or ["rec1", "rec2"] instead of a string
+    if "prompt_recommendations" in bundle:
+        recs = bundle["prompt_recommendations"]
+        if isinstance(recs, list):
+            if not recs:
+                bundle["prompt_recommendations"] = ""
+            else:
+                # Convert list of recommendations to bullet-point string
+                bundle["prompt_recommendations"] = "\n".join(f"- {rec}" if not rec.startswith("-") else rec for rec in recs)
+
+    return bundle

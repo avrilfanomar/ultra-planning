@@ -2,6 +2,11 @@ let bundle = null;
 
 const $ = (id) => document.getElementById(id);
 
+function getToken() {
+  const m = document.querySelector('meta[name="ultra-plan-token"]');
+  return m ? m.getAttribute("content") : "";
+}
+
 async function load() {
   const r = await fetch("/bundle");
   bundle = await r.json();
@@ -115,7 +120,11 @@ function setStatus(msg, err) {
 
 $("confirm").onclick = async () => {
   const b = collect();
-  const r = await fetch("/confirm", { method: "POST", body: JSON.stringify(b) });
+  const r = await fetch("/confirm", {
+    method: "POST",
+    headers: { "X-Ultra-Plan-Token": getToken(), "Content-Type": "application/json" },
+    body: JSON.stringify(b),
+  });
   setStatus(r.ok ? "confirmed — artifacts written, server exiting" : "confirm failed", !r.ok);
 };
 

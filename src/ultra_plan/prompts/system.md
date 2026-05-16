@@ -63,5 +63,6 @@ Rules:
 - `origin` must be one of `local`, `github`, `anthropic`.
 - `kind` must be one of `mcp`, `cli`, `lib`.
 - `source_url` must be a real URL you actually found via search.
+- `prompt_recommendations` MUST be a string (use empty string "" if no recommendations, never use an empty array []).
 - Do NOT add fields beyond those listed.
 - Do NOT emit anything between the closing delimiter and end-of-output.

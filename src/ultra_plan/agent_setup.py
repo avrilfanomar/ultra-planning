@@ -7,17 +7,19 @@ data to disk.
 """
 
 
-def build_claude_settings(bundle: dict) -> dict:
+def build_claude_settings(bundle: dict) -> tuple[dict, list[str]]:
     """Build a Claude settings.json body from a bundle.
 
-    Returns a dict with ``permissions`` and/or ``mcpServers`` keys populated
-    from the bundle. Only non-empty top-level keys are included.
-
-    MCP entries are emitted only when the tool object carries a usable
-    ``command`` or ``url`` field. When neither is present we skip the entry
-    and rely on the user having registered the server via ``claude mcp add``.
+    Returns a ``(settings, skipped)`` tuple where ``settings`` is a dict with
+    ``permissions`` and/or ``mcpServers`` keys populated from the bundle (only
+    non-empty top-level keys are included), and ``skipped`` is the list of
+    enabled MCP tool names that were omitted because their bundle entry lacks
+    transport details (no ``command`` and no ``url``). Callers should surface
+    the skipped list as a warning so users know which MCP tools will not be
+    functional at execute time.
     """
     result: dict = {}
+    skipped: list[str] = []
 
     # --- permissions ---
     permissions = bundle.get("permissions", {})
@@ -46,6 +48,7 @@ def build_claude_settings(bundle: dict) -> dict:
         url = tool.get("url")
         if command is None and url is None:
             # No transport details — skip; user must register via claude mcp add
+            skipped.append(name)
             continue
         entry: dict = {}
         if command is not None:
@@ -64,10 +67,10 @@ def build_claude_settings(bundle: dict) -> dict:
     if mcp_servers:
         result["mcpServers"] = mcp_servers
 
-    return result
+    return result, skipped
 
 
-def build_opencode_config(bundle: dict) -> dict:
+def build_opencode_config(bundle: dict) -> tuple[dict, list[str]]:
     """Build an opencode.json body from a bundle.
 
     Always includes ``$schema``. Other keys are only included when they
@@ -84,8 +87,13 @@ def build_opencode_config(bundle: dict) -> dict:
     value to ``"ask"`` (i.e. deny takes precedence over allow). A deny entry
     whose pattern was never in allow still produces a ``"ask"`` value — the
     intent is to be conservative when the user explicitly denied something.
+
+    Returns a ``(config, skipped)`` tuple. ``skipped`` is the list of enabled
+    MCP tool names whose bundle entry lacked transport (``command``/``url``)
+    and were therefore omitted.
     """
     result: dict = {"$schema": "https://opencode.ai/config.json"}
+    skipped: list[str] = []
 
     # --- permission ---
     permissions = bundle.get("permissions", {})
@@ -135,6 +143,7 @@ def build_opencode_config(bundle: dict) -> dict:
         url = tool.get("url")
         if command is None and url is None:
             # No transport details — skip
+            skipped.append(name)
             continue
         entry: dict = {"enabled": True}
         if command is not None:
@@ -149,7 +158,7 @@ def build_opencode_config(bundle: dict) -> dict:
     if mcp_block:
         result["mcp"] = mcp_block
 
-    return result
+    return result, skipped
 
 
 def build_skills_context(bundle: dict) -> str:

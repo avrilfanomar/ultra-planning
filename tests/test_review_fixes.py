@@ -169,6 +169,133 @@ def test_put_responds_403_when_origin_bad(tmp_path):
     assert sent and sent[0][0] == 403
 
 
+def test_put_responds_403_when_token_missing(tmp_path):
+    h, sent = _make_handler(tmp_path, {"Content-Length": "0"})
+    # Bind a token onto the instance to enable token enforcement.
+    h.token = "secret-token-xyz"
+    h.path = "/bundle"
+    h.do_PUT()
+    assert sent and sent[0][0] == 403
+
+
+def test_put_responds_403_when_token_wrong(tmp_path):
+    h, sent = _make_handler(
+        tmp_path,
+        {"Content-Length": "0", "X-Ultra-Plan-Token": "nope"},
+    )
+    h.token = "secret-token-xyz"
+    h.path = "/bundle"
+    h.do_PUT()
+    assert sent and sent[0][0] == 403
+
+
+def test_post_responds_403_when_token_missing(tmp_path):
+    h, sent = _make_handler(tmp_path, {"Content-Length": "0"})
+    h.token = "secret-token-xyz"
+    h.path = "/confirm"
+    h.do_POST()
+    assert sent and sent[0][0] == 403
+
+
+def test_put_succeeds_with_valid_token_header(tmp_path, monkeypatch):
+    # Bypass schema validation (jsonschema registry kwarg issue pre-existing).
+    monkeypatch.setattr(review_server, "_validate_or_error", lambda b: None)
+    payload = json.dumps({"task": "x"}).encode()
+
+    class _BodyReader:
+        def __init__(self, data: bytes) -> None:
+            self._data = data
+
+        def read(self, n: int) -> bytes:
+            d, self._data = self._data[:n], self._data[n:]
+            return d
+
+    h, sent = _make_handler(
+        tmp_path,
+        {
+            "Content-Length": str(len(payload)),
+            "X-Ultra-Plan-Token": "secret-token-xyz",
+        },
+    )
+    h.token = "secret-token-xyz"
+    h.rfile = _BodyReader(payload)
+    h.path = "/bundle"
+    h.do_PUT()
+    assert sent and sent[0][0] == 200
+    # Atomic helper must not leave .tmp files around on the happy path.
+    assert (tmp_path / "bundle.json").exists()
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_put_succeeds_with_valid_token_query_param(tmp_path, monkeypatch):
+    monkeypatch.setattr(review_server, "_validate_or_error", lambda b: None)
+    payload = json.dumps({"task": "x"}).encode()
+
+    class _BodyReader:
+        def __init__(self, data: bytes) -> None:
+            self._data = data
+
+        def read(self, n: int) -> bytes:
+            d, self._data = self._data[:n], self._data[n:]
+            return d
+
+    h, sent = _make_handler(tmp_path, {"Content-Length": str(len(payload))})
+    h.token = "secret-token-xyz"
+    h.rfile = _BodyReader(payload)
+    h.path = "/bundle?token=secret-token-xyz"
+    h.do_PUT()
+    assert sent and sent[0][0] == 200
+
+
+def test_atomic_write_no_tmp_files_left(tmp_path):
+    review_server._atomic_write_text(tmp_path / "out.json", '{"a":1}')
+    assert (tmp_path / "out.json").read_text() == '{"a":1}'
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_write_derived_artifacts_leaves_no_tmp(tmp_path):
+    bundle = valid_bundle()
+    review_server.write_derived_artifacts(tmp_path, bundle)
+    assert (tmp_path / "bundle.json").exists()
+    assert (tmp_path / "skills.json").exists()
+    assert (tmp_path / "plan.md").exists()
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_serve_falls_back_to_ephemeral_port_when_busy(tmp_path, monkeypatch):
+    import socket
+
+    # Occupy a port on 127.0.0.1, then ask serve() to bind to it.
+    blocker = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    blocker.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
+    blocker.bind(("127.0.0.1", 0))
+    blocker.listen(1)
+    busy_port = blocker.getsockname()[1]
+
+    # Patch serve_forever to return immediately so serve() doesn't block.
+    started: dict = {}
+
+    real_bind = review_server._bind_server
+
+    def fake_bind(port, handler_cls):
+        srv = real_bind(port, handler_cls)
+        started["port"] = srv.server_address[1]
+        # Patch serve_forever on this instance to be a no-op.
+        srv.serve_forever = lambda: None  # type: ignore[method-assign]
+        return srv
+
+    monkeypatch.setattr(review_server, "_bind_server", fake_bind)
+    try:
+        review_server.serve(tmp_path, port=busy_port, open_browser=False)
+    finally:
+        blocker.close()
+
+    assert "port" in started
+    # Must have bound to a different (ephemeral) port.
+    assert started["port"] != busy_port
+    assert started["port"] != 0
+
+
 def test_post_confirm_triggers_shutdown_flag(tmp_path, monkeypatch):
     # Seed a valid bundle.json so do_POST with empty body works.
     (tmp_path / "bundle.json").write_text(json.dumps(valid_bundle()))

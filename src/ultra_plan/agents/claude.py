@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 
 from ._env import scrub_env
+from ._errors import classify_cli_error
 from ._extract import extract_bundle
 
 # Static defense-in-depth deny list applied to the preflight planning run.
@@ -65,43 +66,7 @@ def run(prompt: str, *, allowed_tools: list[str]) -> dict:
                 "claude CLI not found on PATH - install Claude Code"
             ) from e
         except subprocess.CalledProcessError as e:
-            # Try to parse the full JSON output first to get the actual error message
-            error_detail = ""
-            if e.stdout:
-                try:
-                    result = json.loads(e.stdout)
-                    if isinstance(result, dict) and "result" in result:
-                        error_detail = result["result"]
-                except json.JSONDecodeError:
-                    pass
-
-            # Fall back to stderr or last 500 chars of stdout if JSON parsing failed
-            if not error_detail:
-                stderr_tail = (e.stderr or "")[-500:]
-                stdout_tail = (e.stdout or "")[-500:]
-                error_detail = stderr_tail or stdout_tail
-
-            # Provide helpful messages for common issues
-            if "Invalid API key" in error_detail or "401" in error_detail:
-                raise RuntimeError(
-                    f"claude CLI failed: Invalid API key. "
-                    f"Please authenticate with Claude Code using '/login' or 'claude auth'. "
-                    f"Error: {error_detail}"
-                ) from e
-            elif "403" in error_detail or "Forbidden" in error_detail:
-                raise RuntimeError(
-                    f"claude CLI failed: Permission denied. "
-                    f"Check your API key permissions. Error: {error_detail}"
-                ) from e
-            elif "429" in error_detail or "rate limit" in error_detail.lower():
-                raise RuntimeError(
-                    f"claude CLI failed: Rate limit exceeded. "
-                    f"Please try again later. Error: {error_detail}"
-                ) from e
-            else:
-                raise RuntimeError(
-                    f"claude CLI failed with exit code {e.returncode}: {error_detail}"
-                ) from e
+            raise classify_cli_error(e, cli_name="claude") from e
 
         try:
             envelope = json.loads(proc.stdout)

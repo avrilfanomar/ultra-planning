@@ -17,29 +17,32 @@ from tests.fixtures import valid_bundle
 class TestBuildClaudeSettings:
     def test_permissions_present(self):
         bundle = valid_bundle()
-        result = build_claude_settings(bundle)
+        result, _skipped = build_claude_settings(bundle)
         assert "permissions" in result
         assert result["permissions"]["allow"] == bundle["permissions"]["allow"]
         assert result["permissions"]["deny"] == bundle["permissions"]["deny"]
 
     def test_mcp_without_transport_skipped(self):
-        """The default fixture MCP tool has no command/url — should be omitted."""
+        """The default fixture MCP tool has no command/url — should be omitted and surfaced."""
         bundle = valid_bundle()
-        result = build_claude_settings(bundle)
+        result, skipped = build_claude_settings(bundle)
         assert "mcpServers" not in result
+        # The fixture's MCP tool name should appear in the skipped list.
+        assert "postgres-mcp" in skipped
 
     def test_mcp_with_command_included(self):
         bundle = valid_bundle()
         bundle["tools"][0]["command"] = "npx"
-        result = build_claude_settings(bundle)
+        result, skipped = build_claude_settings(bundle)
         assert "mcpServers" in result
         assert "postgres-mcp" in result["mcpServers"]
         assert result["mcpServers"]["postgres-mcp"]["command"] == "npx"
+        assert skipped == []
 
     def test_mcp_with_command_list(self):
         bundle = valid_bundle()
         bundle["tools"][0]["command"] = ["npx", "-y", "@mcp/server"]
-        result = build_claude_settings(bundle)
+        result, _skipped = build_claude_settings(bundle)
         entry = result["mcpServers"]["postgres-mcp"]
         assert entry["command"] == "npx"
         assert entry["args"] == ["-y", "@mcp/server"]
@@ -47,74 +50,125 @@ class TestBuildClaudeSettings:
     def test_mcp_with_url_included(self):
         bundle = valid_bundle()
         bundle["tools"][0]["url"] = "https://mcp.example.com"
-        result = build_claude_settings(bundle)
+        result, skipped = build_claude_settings(bundle)
         assert result["mcpServers"]["postgres-mcp"]["url"] == "https://mcp.example.com"
+        assert skipped == []
 
     def test_disabled_mcp_tool_skipped(self):
         bundle = valid_bundle()
         bundle["tools"][0]["enabled"] = False
         bundle["tools"][0]["command"] = "npx"
-        result = build_claude_settings(bundle)
+        result, skipped = build_claude_settings(bundle)
         assert "mcpServers" not in result
+        # Disabled tools must NOT appear in the skipped (warning) list.
+        assert skipped == []
 
     def test_empty_permissions_not_in_result(self):
         bundle = {"task": "x"}
-        result = build_claude_settings(bundle)
+        result, skipped = build_claude_settings(bundle)
         assert result == {}
+        assert skipped == []
 
     def test_only_allow_key_present(self):
         bundle = {"task": "x", "permissions": {"allow": ["WebFetch"]}}
-        result = build_claude_settings(bundle)
+        result, _skipped = build_claude_settings(bundle)
         assert result["permissions"]["allow"] == ["WebFetch"]
         assert "deny" not in result["permissions"]
         assert "ask" not in result["permissions"]
 
     def test_ask_key_forwarded(self):
         bundle = {"task": "x", "permissions": {"ask": ["Bash(*)", "Write"]}}
-        result = build_claude_settings(bundle)
+        result, _skipped = build_claude_settings(bundle)
         assert result["permissions"]["ask"] == ["Bash(*)", "Write"]
 
 
 # ---------------------------------------------------------------------------
 # build_opencode_config
 # ---------------------------------------------------------------------------
+#
+# The permission-mapping tests below lock in *current* behaviour, including
+# the deny-widens-to-ask semantics flagged in the improvement plan: when a
+# deny entry matches one of the broad keys (write/edit/bash), the resulting
+# value is "ask" rather than "deny" — even when the same key was previously
+# resolved to "allow" via an allow entry. This is intentional documentation
+# of present behaviour, not an endorsement of it.
 
 class TestBuildOpencodeConfig:
     def test_schema_always_present(self):
-        result = build_opencode_config({})
+        result, _skipped = build_opencode_config({})
         assert result["$schema"] == "https://opencode.ai/config.json"
 
     def test_allow_write_maps_to_permission_write(self):
         bundle = {"permissions": {"allow": ["Write"]}}
-        result = build_opencode_config(bundle)
+        result, _skipped = build_opencode_config(bundle)
         assert result["permission"]["write"] == "allow"
 
     def test_allow_edit_maps_to_permission_edit(self):
         bundle = {"permissions": {"allow": ["Edit"]}}
-        result = build_opencode_config(bundle)
+        result, _skipped = build_opencode_config(bundle)
         assert result["permission"]["edit"] == "allow"
 
     def test_allow_bash_maps_to_permission_bash(self):
         bundle = {"permissions": {"allow": ["Bash(git:*)"]}}
-        result = build_opencode_config(bundle)
+        result, _skipped = build_opencode_config(bundle)
         assert result["permission"]["bash"] == "allow"
 
     def test_deny_overrides_allow(self):
         bundle = {"permissions": {"allow": ["Bash(git:*)"], "deny": ["Bash(rm:*)"]}}
-        result = build_opencode_config(bundle)
+        result, _skipped = build_opencode_config(bundle)
         # deny takes precedence
         assert result["permission"]["bash"] == "ask"
 
     def test_deny_without_allow_still_produces_ask(self):
         """A deny entry with no matching allow still emits 'ask'."""
         bundle = {"permissions": {"deny": ["Bash(rm:*)"]}}
-        result = build_opencode_config(bundle)
+        result, _skipped = build_opencode_config(bundle)
         assert result["permission"]["bash"] == "ask"
+
+    # --- Permission mapping edge cases (locking in current semantics) ---
+
+    def test_allow_bash_prefix_form(self):
+        """`Bash(ls)` (prefix form) maps to allow — the parameterized variant."""
+        bundle = {"permissions": {"allow": ["Bash(ls)"]}}
+        result, _skipped = build_opencode_config(bundle)
+        assert result["permission"]["bash"] == "allow"
+
+    def test_deny_bash_rm_with_allow_bash_ls_widens_to_ask(self):
+        """deny `Bash(rm -rf /)` while allow has `Bash(ls)` -> bash == "ask"."""
+        bundle = {
+            "permissions": {
+                "allow": ["Bash(ls)"],
+                "deny": ["Bash(rm -rf /)"],
+            }
+        }
+        result, _skipped = build_opencode_config(bundle)
+        assert result["permission"]["bash"] == "ask"
+
+    def test_deny_bare_bash_no_allow_is_ask(self):
+        """deny `Bash` (no allow entry) -> bash == "ask"."""
+        bundle = {"permissions": {"deny": ["Bash"]}}
+        result, _skipped = build_opencode_config(bundle)
+        assert result["permission"]["bash"] == "ask"
+
+    def test_allow_write_and_edit_both_map(self):
+        """allow `Write` and `Edit` -> both write and edit map to "allow"."""
+        bundle = {"permissions": {"allow": ["Write", "Edit"]}}
+        result, _skipped = build_opencode_config(bundle)
+        assert result["permission"]["write"] == "allow"
+        assert result["permission"]["edit"] == "allow"
+
+    def test_deny_edit_no_matching_allow_is_ask(self):
+        """deny `Edit` with no allow entry -> edit == "ask"."""
+        bundle = {"permissions": {"deny": ["Edit"]}}
+        result, _skipped = build_opencode_config(bundle)
+        assert result["permission"]["edit"] == "ask"
+
+    # --- end edge cases ---
 
     def test_valid_bundle_permissions(self):
         bundle = valid_bundle()
         # allow: ["WebFetch"], deny: ["Bash(rm:*)"]
-        result = build_opencode_config(bundle)
+        result, _skipped = build_opencode_config(bundle)
         # WebFetch doesn't match write/edit/bash → no write/edit key
         assert "write" not in result.get("permission", {})
         assert "edit" not in result.get("permission", {})
@@ -123,13 +177,14 @@ class TestBuildOpencodeConfig:
 
     def test_mcp_without_transport_skipped(self):
         bundle = valid_bundle()
-        result = build_opencode_config(bundle)
+        result, skipped = build_opencode_config(bundle)
         assert "mcp" not in result
+        assert "postgres-mcp" in skipped
 
     def test_mcp_with_command_list(self):
         bundle = valid_bundle()
         bundle["tools"][0]["command"] = ["npx", "-y", "@mcp/server"]
-        result = build_opencode_config(bundle)
+        result, _skipped = build_opencode_config(bundle)
         entry = result["mcp"]["postgres-mcp"]
         assert entry["type"] == "local"
         assert entry["command"] == ["npx", "-y", "@mcp/server"]
@@ -138,13 +193,13 @@ class TestBuildOpencodeConfig:
     def test_mcp_with_command_string_normalized_to_list(self):
         bundle = valid_bundle()
         bundle["tools"][0]["command"] = "npx"
-        result = build_opencode_config(bundle)
+        result, _skipped = build_opencode_config(bundle)
         assert result["mcp"]["postgres-mcp"]["command"] == ["npx"]
 
     def test_mcp_with_url(self):
         bundle = valid_bundle()
         bundle["tools"][0]["url"] = "https://mcp.example.com"
-        result = build_opencode_config(bundle)
+        result, _skipped = build_opencode_config(bundle)
         entry = result["mcp"]["postgres-mcp"]
         assert entry["type"] == "remote"
         assert entry["url"] == "https://mcp.example.com"
@@ -153,11 +208,12 @@ class TestBuildOpencodeConfig:
         bundle = valid_bundle()
         bundle["tools"][0]["enabled"] = False
         bundle["tools"][0]["command"] = "npx"
-        result = build_opencode_config(bundle)
+        result, skipped = build_opencode_config(bundle)
         assert "mcp" not in result
+        assert skipped == []
 
     def test_empty_bundle_only_schema(self):
-        result = build_opencode_config({})
+        result, _skipped = build_opencode_config({})
         assert list(result.keys()) == ["$schema"]
 
 

@@ -34,6 +34,19 @@ def _build_parser() -> argparse.ArgumentParser:
     exe.add_argument("--agent", choices=["claude", "opencode"], default="claude")
     exe.add_argument("--headless", action="store_true", help="Run in non-interactive mode.")
     exe.add_argument("--cwd", default=None, help="Working directory for execution (defaults to bundle dir).")
+    exe.add_argument(
+        "--pass-env",
+        action="append",
+        default=[],
+        metavar="VAR",
+        help="Environment variable name to pass through to the agent in addition "
+             "to the scrubbed default allowlist. Repeatable.",
+    )
+    exe.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip the interactive confirmation prompt. Required with --headless.",
+    )
 
     return p
 
@@ -53,32 +66,42 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(_normalize_argv(raw))
 
-    if args.command == "review":
-        review_existing(Path(args.dir), port=args.port, open_browser=not args.no_browser)
-        return 0
+    try:
+        if args.command == "review":
+            review_existing(Path(args.dir), port=args.port, open_browser=not args.no_browser)
+            return 0
 
-    if args.command == "execute":
-        bundle_dir = Path(args.dir)
-        cwd = Path(args.cwd) if args.cwd else None
-        execute_bundle(
-            bundle_dir,
+        if args.command == "execute":
+            bundle_dir = Path(args.dir)
+            cwd = Path(args.cwd) if args.cwd else None
+            execute_bundle(
+                bundle_dir,
+                agent=args.agent,
+                interactive=not args.headless,
+                cwd=cwd,
+                pass_env=list(args.pass_env or []),
+                yes=args.yes,
+            )
+            return 0
+
+        sources = resolve_sources(args.sources, args.preset)
+        out = Path(args.out) if args.out else default_out_dir(args.task)
+        run_plan(
+            args.task,
             agent=args.agent,
-            interactive=not args.headless,
-            cwd=cwd,
+            sources=sources,
+            out_dir=out,
+            port=args.port,
+            open_browser=not args.no_browser,
         )
         return 0
-
-    sources = resolve_sources(args.sources, args.preset)
-    out = Path(args.out) if args.out else default_out_dir(args.task)
-    run_plan(
-        args.task,
-        agent=args.agent,
-        sources=sources,
-        out_dir=out,
-        port=args.port,
-        open_browser=not args.no_browser,
-    )
-    return 0
+    except FileNotFoundError as e:
+        # Missing CLI / missing bundle -> usage error
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    except RuntimeError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

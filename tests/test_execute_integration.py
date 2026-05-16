@@ -11,46 +11,42 @@ from tests.fixtures import valid_bundle
 
 
 def test_execute_command_integration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Integration test: execute command reads bundle and invokes agent CLI."""
-    # Prepare a bundle directory
+    """Integration test: execute command reads bundle and invokes agent CLI via stdin."""
     bundle_dir = tmp_path / "test-bundle"
     bundle_dir.mkdir()
     bundle = valid_bundle()
     (bundle_dir / "bundle.json").write_text(json.dumps(bundle, indent=2))
 
-    # Mock subprocess.run to capture the command
     mock_run = MagicMock()
     mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
     monkeypatch.setattr("subprocess.run", mock_run)
 
-    # Run the execute command
-    result = main(["execute", str(bundle_dir), "--agent", "claude", "--headless"])
+    result = main(["execute", str(bundle_dir), "--agent", "claude", "--headless", "--yes"])
 
-    # Verify command execution
     assert result == 0
     assert mock_run.called
     call_args = mock_run.call_args
 
-    # Verify command structure
     cmd = call_args[0][0]
     assert cmd[0] == "claude"
-    assert "--print" in cmd
+    assert "-p" in cmd
     assert "--output-format" in cmd
     assert "--allowedTools" in cmd
 
-    # Verify tool configuration
     tools_idx = cmd.index("--allowedTools")
     tools = cmd[tools_idx + 1]
     assert "mcp__postgres-mcp__*" in tools
 
-    # Verify prompt was passed correctly (last positional arg)
-    prompt = cmd[-1]
-    assert bundle["task"] in prompt
-    assert bundle["prompt_recommendations"] in prompt
-    assert bundle["expected_outcome"] in prompt
-    assert bundle["plan_markdown"] in prompt
+    # Prompt should now be piped via stdin, not appended as final argv.
+    prompt_input = call_args.kwargs.get("input")
+    assert prompt_input is not None
+    assert bundle["task"] in prompt_input
+    assert bundle["prompt_recommendations"] in prompt_input
+    assert bundle["expected_outcome"] in prompt_input
+    assert bundle["plan_markdown"] in prompt_input
 
-    # settings.json must be written into bundle_dir
+    assert bundle["task"] not in cmd
+
     assert (bundle_dir / "settings.json").exists()
 
 
@@ -65,7 +61,7 @@ def test_execute_with_opencode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
     monkeypatch.setattr("subprocess.run", mock_run)
 
-    result = main(["execute", str(bundle_dir), "--agent", "opencode", "--headless"])
+    result = main(["execute", str(bundle_dir), "--agent", "opencode", "--headless", "--yes"])
 
     assert result == 0
     assert mock_run.called
@@ -75,17 +71,19 @@ def test_execute_with_opencode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     assert "run" in cmd
     assert "--dangerously-skip-permissions" in cmd
 
-    # opencode.json must be written into bundle_dir
     assert (bundle_dir / "opencode.json").exists()
 
 
 def test_execute_missing_bundle(tmp_path: Path, capsys):
-    """Test execute command fails gracefully when bundle.json is missing."""
+    """Execute command exits 2 with a clean error when bundle.json is missing."""
     empty_dir = tmp_path / "empty"
     empty_dir.mkdir()
 
-    with pytest.raises(FileNotFoundError, match="No bundle.json found"):
-        main(["execute", str(empty_dir)])
+    rc = main(["execute", str(empty_dir), "--headless", "--yes"])
+    assert rc == 2
+    captured = capsys.readouterr()
+    assert "error:" in captured.err
+    assert "No bundle.json" in captured.err
 
 
 def test_execute_with_custom_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -99,7 +97,7 @@ def test_execute_with_custom_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     work_dir.mkdir()
 
     mock_run = MagicMock()
-    mock_run.return_value = MagicMock(returncode=0)
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
     monkeypatch.setattr("subprocess.run", mock_run)
 
     result = main([
@@ -107,10 +105,49 @@ def test_execute_with_custom_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
         str(bundle_dir),
         "--agent", "claude",
         "--headless",
-        "--cwd", str(work_dir)
+        "--yes",
+        "--cwd", str(work_dir),
     ])
 
     assert result == 0
-    # Verify cwd was passed to subprocess
     kwargs = mock_run.call_args[1]
     assert kwargs.get("cwd") == work_dir
+
+
+def test_execute_headless_without_yes_exits_nonzero(tmp_path: Path, capsys):
+    """Headless without --yes must fail with a clear error."""
+    bundle_dir = tmp_path / "bundle"
+    bundle_dir.mkdir()
+    (bundle_dir / "bundle.json").write_text(json.dumps(valid_bundle()))
+
+    rc = main(["execute", str(bundle_dir), "--headless"])
+    assert rc == 1
+    captured = capsys.readouterr()
+    assert "error:" in captured.err
+    assert "--yes" in captured.err
+
+
+def test_execute_pass_env_flag_threaded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """--pass-env values reach the subprocess env."""
+    bundle_dir = tmp_path / "bundle"
+    bundle_dir.mkdir()
+    (bundle_dir / "bundle.json").write_text(json.dumps(valid_bundle()))
+
+    monkeypatch.setenv("MY_SECRET", "shhh")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-x")
+
+    mock_run = MagicMock()
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+    monkeypatch.setattr("subprocess.run", mock_run)
+
+    rc = main([
+        "execute", str(bundle_dir),
+        "--agent", "claude",
+        "--headless", "--yes",
+        "--pass-env", "MY_SECRET",
+    ])
+    assert rc == 0
+    env = mock_run.call_args.kwargs["env"]
+    assert env["MY_SECRET"] == "shhh"
+    # ANTHROPIC_API_KEY was NOT passed through (not in --pass-env)
+    assert "ANTHROPIC_API_KEY" not in env

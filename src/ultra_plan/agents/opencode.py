@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 
 from ._env import scrub_env
+from ._errors import classify_cli_error
 from ._extract import extract_bundle
 
 # Strict preflight config. opencode discovers config in the working dir / git
@@ -55,8 +56,5 @@ def run(prompt: str, *, allowed_tools: list[str]) -> dict:
                 "opencode CLI not found on PATH - install opencode"
             ) from e
         except subprocess.CalledProcessError as e:
-            stderr_tail = (e.stderr or "")[-500:]
-            raise RuntimeError(
-                f"opencode CLI failed with exit code {e.returncode}: {stderr_tail}"
-            ) from e
+            raise classify_cli_error(e, cli_name="opencode") from e
         return extract_bundle(proc.stdout)
