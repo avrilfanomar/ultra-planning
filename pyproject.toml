@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ultra-plan"
-version = "0.1.2"
+version = "0.1.3"
 description = "Ultra planning: web-sourced skills/tools/permissions bundle for coding agents."
 readme = "README.md"
 requires-python = ">=3.10"
