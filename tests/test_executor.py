@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.fixtures import valid_bundle
 from ultra_plan.executor import (
     _build_execute_env,
     _build_execution_prompt,
@@ -12,7 +13,6 @@ from ultra_plan.executor import (
     _materialize_agent_config,
     execute_bundle,
 )
-from tests.fixtures import valid_bundle
 
 
 def test_build_tool_list():

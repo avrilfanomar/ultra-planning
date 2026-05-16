@@ -1,15 +1,14 @@
 from __future__ import annotations
 
+import json
 import re
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from .agents import claude as _claude
 from .agents import opencode as _opencode
 from .prompts import render_prompt
-import json
-
-from .review.server import copy_static, serve, write_derived_artifacts
+from .review.server import copy_static, serve
 from .validate import validate_bundle
 
 AgentFn = Callable[..., dict]

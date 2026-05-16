@@ -6,8 +6,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from ultra_plan.cli import main
 from tests.fixtures import valid_bundle
+from ultra_plan.cli import main
 
 
 def test_execute_command_integration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

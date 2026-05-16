@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import pytest
-
+from tests.fixtures import valid_bundle
 from ultra_plan.agent_setup import (
     build_claude_settings,
     build_opencode_config,
     build_skills_context,
 )
-from tests.fixtures import valid_bundle
-
 
 # ---------------------------------------------------------------------------
 # build_claude_settings

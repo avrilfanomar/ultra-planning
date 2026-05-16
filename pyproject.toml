@@ -9,16 +9,49 @@ description = "Ultra planning: web-sourced skills/tools/permissions bundle for c
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
+authors = [{ name = "Andrii Andriichuk", email = "andrey000mar@gmail.com" }]
+keywords = ["claude", "claude-code", "agents", "mcp", "planning", "bundles", "opencode"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "License :: OSI Approved :: Apache Software License",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Code Generators",
+]
 dependencies = [
     "jsonschema>=4.18",
     "referencing>=0.30",
 ]
 
+[project.urls]
+Homepage = "https://github.com/avrilfanomar/ultra-planning"
+Source = "https://github.com/avrilfanomar/ultra-planning"
+Issues = "https://github.com/avrilfanomar/ultra-planning/issues"
+
 [project.optional-dependencies]
-dev = ["pytest>=7"]
+dev = ["pytest>=7", "pytest-cov>=4", "ruff>=0.6", "build>=1", "twine>=5"]
 
 [project.scripts]
 ultra-plan = "ultra_plan.cli:main"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = ["examples"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# Module docstring sits below `from __future__ import annotations`, which must
+# remain the first statement.
+"src/ultra_plan/agents/_errors.py" = ["E402"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

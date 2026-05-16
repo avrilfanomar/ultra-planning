@@ -34,6 +34,8 @@ def extract_bundle(text: str) -> dict:
                 bundle["prompt_recommendations"] = ""
             else:
                 # Convert list of recommendations to bullet-point string
-                bundle["prompt_recommendations"] = "\n".join(f"- {rec}" if not rec.startswith("-") else rec for rec in recs)
+                bundle["prompt_recommendations"] = "\n".join(
+                    rec if rec.startswith("-") else f"- {rec}" for rec in recs
+                )
 
     return bundle

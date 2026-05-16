@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 from jsonschema import ValidationError
 
-from ultra_plan.validate import validate_bundle
 from tests.fixtures import malformed_bundle, valid_bundle
+from ultra_plan.validate import validate_bundle
 
 
 def test_valid_bundle_passes():

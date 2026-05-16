@@ -65,7 +65,7 @@ class TestClaudeAgent:
 ===BUNDLE-END==="""
         mock_result.returncode = 0
 
-        with patch("subprocess.run", return_value=mock_result) as mock_run:
+        with patch("subprocess.run", return_value=mock_result):
             result = claude.run("test prompt", allowed_tools=["Read"])
 
         assert result["plan_markdown"] == "direct"

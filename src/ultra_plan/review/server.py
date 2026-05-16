@@ -9,7 +9,7 @@ import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit, parse_qs
+from urllib.parse import parse_qs, urlsplit
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -32,8 +32,9 @@ def _atomic_write_text(path: Path, content: str) -> None:
 
 
 def _validate_or_error(bundle: dict) -> str | None:
-    from ..validate import validate_bundle
     from jsonschema import ValidationError
+
+    from ..validate import validate_bundle
 
     try:
         validate_bundle(bundle)

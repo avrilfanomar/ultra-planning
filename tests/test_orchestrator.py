@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from tests.fixtures import valid_bundle
 from ultra_plan import orchestrator
 from ultra_plan.agents._extract import extract_bundle
 from ultra_plan.review.server import write_derived_artifacts
-from tests.fixtures import valid_bundle
 
 
 def test_run_plan_writes_artifacts(tmp_path: Path, monkeypatch):

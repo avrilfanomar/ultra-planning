@@ -6,10 +6,9 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from ultra_plan import orchestrator
 from ultra_plan.agents import claude, opencode
 from ultra_plan.agents._env import scrub_env
-from ultra_plan import orchestrator
-
 
 _BUNDLE_STDOUT = """===BUNDLE-BEGIN===
 {"skills":[],"tools":[],"permissions":{"allow":[],"deny":[]},"plan_markdown":"x","prompt_recommendations":"x"}

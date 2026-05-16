@@ -294,13 +294,13 @@ def execute_opencode(
 
     env = _build_execute_env(pass_env)
 
-    print(f"[ultra-plan] Executing with opencode")
+    print("[ultra-plan] Executing with opencode")
 
     try:
         if interactive:
             # Interactive sessions need a TTY; pass the prompt positionally
             # using `--` so it can't be parsed as a flag.
-            print(f"[ultra-plan] Command: opencode run -- <prompt>")
+            print("[ultra-plan] Command: opencode run -- <prompt>")
             interactive_cmd = list(cmd) + ["--", prompt]
             proc = subprocess.run(
                 interactive_cmd,

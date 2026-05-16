@@ -7,12 +7,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.fixtures import valid_bundle
 from ultra_plan.agents import claude as claude_agent
 from ultra_plan.agents import opencode as opencode_agent
 from ultra_plan.review import server as review_server
 from ultra_plan.validate import validate_bundle
-from tests.fixtures import valid_bundle
-
 
 # --- Fix 1: stdin-based prompt -----------------------------------------------
 
