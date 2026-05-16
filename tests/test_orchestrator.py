@@ -33,7 +33,9 @@ def test_run_plan_writes_artifacts(tmp_path: Path, monkeypatch):
     assert "## Source: github" in captured["prompt"]
     assert "## Source: mcp" not in captured["prompt"]
     assert (out / "bundle.json").exists()
-    assert (out / "index.html").exists()
+    # UI assets (index.html/app.js/style.css) are served from the package's
+    # STATIC_DIR and intentionally not copied into out_dir.
+    assert not (out / "index.html").exists()
     # Derived artifacts are written only on Confirm via the review server.
     assert not (out / "skills.json").exists()
 
