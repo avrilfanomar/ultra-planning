@@ -1,154 +1,75 @@
 # ultra-plan
 
-A CLI that produces a **fixed, reviewable bundle** of skills, tools, MCP servers, permission patches, and prompt recommendations for a task — by delegating the discovery loop to a headless coding agent (Claude Code by default; opencode also supported).
+ultra-plan is a CLI that produces a reviewable bundle of skills, tools, MCP
+servers, and permission patches for a task by delegating discovery to
+a headless agent (Claude Code by default; opencode also supported). The
+bundle is written to disk; nothing is installed.
 
-## Install
+## WHAT IS IN A BUNDLE
 
-```
-pip install -e .
-```
+A bundle is a directory under `--out` (default `./ultra-plan/<slug>/`)
+containing:
 
-Requires Python 3.10+. The `claude` CLI (or `opencode`) must be on `$PATH` for live runs.
+    bundle.json                 canonical, validated bundle
+    index.html, app.js, style.css   review UI (served locally)
 
-## Usage
+After you click Confirm in the review UI, the server also writes:
 
-```
-ultra-plan "<task>" [flags]
-ultra-plan run "<task>" [flags]
-ultra-plan review <dir>
-ultra-plan execute <dir> [flags]
-```
+    expected-outcome.md         deliverables and success criteria
+    skills.json                 enabled skills only
+    tools.json                  enabled tools only
+    permissions.json            proposed settings.json patch
+    plan.md                     implementation plan
+    prompt-recommendations.md   instructions for the executing agent
 
-### Flags
+When `execute` runs, the directory also gains `settings.json` (Claude) or
+`opencode.json` (opencode), materialized from the bundle's permissions and
+MCP configuration.
 
-**`run` command:**
+## INSTALLING
 
-| flag | default | meaning |
-| --- | --- | --- |
-| `--agent` | `claude` | `claude` or `opencode` |
-| `--sources` | (preset) | comma list: `github,mcp,anthropic,web` |
-| `--preset` | `wide` | `wide` (all sources) or `local-only` |
-| `--out` | `./ultra-plan/<slug>/` | output dir |
-| `--port` | `7777` | review-server port |
-| `--no-browser` | off | skip auto-open |
+    pip install -e .
 
-**`review` command:**
+Requires Python 3.10+. The `claude` CLI (or `opencode`) must be on `$PATH`
+for live runs.
 
-| flag | default | meaning |
-| --- | --- | --- |
-| `--port` | `7777` | review-server port |
-| `--no-browser` | off | skip auto-open |
+## USING IT
 
-**`execute` command:**
+    ultra-plan "<task>" [flags]
+    ultra-plan run "<task>" [flags]
+    ultra-plan review <dir>
+    ultra-plan execute <dir> [flags]
 
-| flag | default | meaning |
-| --- | --- | --- |
-| `--agent` | `claude` | `claude` or `opencode` |
-| `--headless` | off | run non-interactively with JSON output |
-| `--cwd` | bundle dir | working directory for execution |
+`run` plans a task: it invokes the agent headless, validates the resulting
+bundle against JSON schemas, starts a local review server, and opens a
+browser. On confirm the final bundle is persisted to `--out`.
 
-## Flow
+`review` re-opens the review UI for an existing bundle directory.
 
-### Planning Flow (`run`)
+`execute` reads `bundle.json`, materializes agent config into the bundle
+directory, builds an execution prompt from the plan, prompt recommendations,
+expected outcome, and original task, and launches the configured agent. By
+default execute is interactive; `--headless` runs non-interactively with
+JSON output.
 
-```
-ultra-plan CLI (thin orchestrator)
-   1. Parse task + flags
-   2. Render prompt template for the chosen agent
-   3. Invoke `claude -p` or `opencode run` headless
-      with task + source list + output schema
-   4. Agent uses WebSearch/WebFetch + source adapters
-      to discover matches, ranks them, writes raw bundle
-   5. CLI validates the bundle against JSON schemas
-   6. CLI starts local review server, opens browser
-   7. On confirm: persist final bundle to --out
-```
+For the full flag list run `ultra-plan <command> --help`.
 
-### Execution Flow (`execute`)
+## SECURITY
 
-```
-ultra-plan execute <dir> [--agent claude|opencode]
-   1. Load bundle.json from the specified directory
-   1a. Materialize agent config — write settings.json (Claude) or opencode.json (opencode) into the bundle directory from the bundle's permissions and MCP tools.
-   2. Extract enabled tools, permissions, and prompt recommendations
-   3. Build execution prompt from:
-      - prompt_recommendations (instructions)
-      - expected_outcome (success criteria)
-      - plan_markdown (implementation plan)
-      - task (original task description)
-   4. Invoke the selected agent CLI with:
-      - Allowed tools (--allowedTools for claude)
-      - Execution prompt via stdin
-      - Optional headless mode for automation
-   5. Agent executes the task with configured tools and context
-```
+The planning agent runs against attacker-controlled web content (search
+results, fetched pages, MCP registries), so the preflight run is hardened
+against prompt injection:
 
-## Output
+  - The agent subprocess inherits only a small allowlist of environment
+    variables; tokens, API keys, and `AWS_*`/`GITHUB_*` secrets are dropped.
+  - The materialized `settings.json` denies `Read`, `Write`, `Edit`,
+    `NotebookEdit`, and `Bash` regardless of any `--allowedTools` passed in.
+  - `WebFetch` denies `file://`, `http://localhost`, `http://127.0.0.1`,
+    and `http://169.254.169.254` (cloud metadata).
+  - Prompts are piped via stdin, so leading `-` cannot be parsed as a flag.
+  - The agent runs in a fresh temp `cwd` containing only `settings.json`.
 
-Under `--out`:
+These protections apply to `run` only. `execute` runs with the tools and
+permissions you confirmed in the review UI — review them before executing.
 
-```
-bundle.json                       # canonical, validated, written immediately
-index.html / app.js / style.css   # review UI, copied from package
-```
-
-After clicking **Confirm** in the review UI, the server also writes:
-
-```
-expected-outcome.md        # task deliverables and success criteria
-skills.json                # enabled items only
-tools.json                 # enabled items only
-permissions.json           # proposed settings.json patch (NOT applied)
-plan.md
-prompt-recommendations.md
-```
-
-No installation is performed — write-only by design.
-
-## Security
-
-The preflight planning agent runs against attacker-controlled web content (search results, fetched pages, MCP registries), so it is hardened against prompt injection:
-
-- **Environment scrubbing** — the agent subprocess inherits only `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `TERM`, `LANG`, `TZ`, `TMPDIR`, and variables prefixed with `CLAUDE_`, `OPENCODE_`, `LC_`, or `XDG_`. Tokens, API keys, and `AWS_*`/`GITHUB_*`-style secrets are dropped so a prompt-injected agent cannot exfiltrate them via `WebFetch` URLs. See `src/ultra_plan/agents/_env.py`.
-- **Defense-in-depth permission denies** — preflight runs ship a generated `settings.json` (Claude) / equivalent (opencode) that denies `Read`, `Write`, `Edit`, `NotebookEdit`, and `Bash` outright, regardless of any broader `--allowedTools` list passed in. Planning is read-only against the web; it cannot touch the filesystem or shell.
-- **SSRF protections** — `WebFetch` denies cover `file://`, `http://localhost`, `http://127.0.0.1`, and the cloud metadata service `http://169.254.169.254` to prevent the agent from reading local files or stealing instance credentials.
-- **Stdin-fed prompts** — the task prompt is piped via stdin (not argv), so prompts beginning with `-` cannot be misinterpreted as CLI flags.
-- **Isolated working directory** — preflight runs `cwd` into a fresh temp dir containing only the materialized `settings.json`, limiting any path-relative tool reach.
-
-These hardenings apply to the `run`/preflight phase. The `execute` phase runs with whatever tools and permissions you confirmed in the bundle — review them before executing.
-
-## Execution
-
-Once you've reviewed and confirmed a bundle, execute it with:
-
-```bash
-ultra-plan execute ./ultra-plan/build-a-rest-api/
-```
-
-The `execute` command:
-- Reads the bundle configuration
-- Extracts enabled tools and builds an `--allowedTools` list
-- Combines prompt recommendations, expected outcome, plan, and task into an execution prompt
-- Launches the selected agent CLI (claude or opencode) with the configured environment
-- For Claude: uses `claude -p --allowedTools <list>`
-- For opencode: uses `opencode run --`
-
-After execute runs, the bundle directory gains a `settings.json` (for Claude) or `opencode.json` (for opencode) containing the materialized permissions and MCP server configuration derived from the bundle. For opencode, the bundle directory is used as the working directory so opencode auto-discovers the config via its current-dir to git-root lookup. When `--cwd` is overridden, `opencode.json` is copied into that directory before launch.
-
-### Interactive vs Headless
-
-By default, `execute` runs **interactively** — you can see the agent's output and interact with it in real-time.
-
-For automation or scripting, use `--headless`:
-
-```bash
-ultra-plan execute ./ultra-plan/build-a-rest-api/ --headless
-```
-
-This runs the agent non-interactively and captures JSON output.
-
-### Skills and Permissions
-
-**Skills**: The execute command inlines each enabled skill's name, rationale, and source URL into the execution prompt as a `# Skills` section. No manual install step is required — the agent receives static awareness of the configured skills as context.
-
-**Permissions**: The execute command auto-generates `settings.json` (for Claude) or `opencode.json` (for opencode) in the bundle directory before launch. For Claude, the file is passed via `--settings`. For opencode, the bundle directory is used as the working directory so opencode discovers the config automatically via its current-dir to git-root lookup. When `--cwd` is overridden, `opencode.json` is copied into that directory before launch.
+See `src/ultra_plan/agents/_env.py` for the environment allowlist.

@@ -6,26 +6,23 @@ from pathlib import Path
 from typing import Any
 
 from jsonschema import Draft202012Validator
-from referencing import Registry, Resource
-from referencing.jsonschema import DRAFT202012
 
 SCHEMA_DIR = Path(__file__).parent / "schema"
-SCHEMA_FILES = ("skills", "tools", "permissions", "bundle")
-
-
-@lru_cache(maxsize=1)
-def _registry() -> Registry:
-    resources = []
-    for name in SCHEMA_FILES:
-        data = json.loads((SCHEMA_DIR / f"{name}.schema.json").read_text())
-        resources.append((data["$id"], Resource(contents=data, specification=DRAFT202012)))
-    return Registry().with_resources(resources)
+SUBSCHEMAS = ("skills", "tools", "permissions")
 
 
 @lru_cache(maxsize=1)
 def _bundle_validator() -> Draft202012Validator:
     schema = json.loads((SCHEMA_DIR / "bundle.schema.json").read_text())
-    return Draft202012Validator(schema, registry=_registry())
+    subs = {}
+    for name in SUBSCHEMAS:
+        data = json.loads((SCHEMA_DIR / f"{name}.schema.json").read_text())
+        subs[data["$id"]] = data
+    for key, prop in schema.get("properties", {}).items():
+        ref = prop.get("$ref") if isinstance(prop, dict) else None
+        if ref in subs:
+            schema["properties"][key] = subs[ref]
+    return Draft202012Validator(schema)
 
 
 def validate_bundle(bundle: dict[str, Any]) -> None:
