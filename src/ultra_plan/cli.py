@@ -4,6 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from . import __version__
 from .executor import execute_bundle
 from .orchestrator import default_out_dir, review_existing, run_plan
 from .prompts import resolve_sources
@@ -13,6 +14,7 @@ _SUBCOMMANDS = {"run", "review", "execute"}
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="ultra-plan", description="Ultra planning over web sources.")
+    p.add_argument("-v", "--version", action="version", version=f"ultra-plan {__version__}")
     sub = p.add_subparsers(dest="command", required=True)
 
     run = sub.add_parser("run", help="Run the full ultra-plan flow.")
@@ -54,7 +56,7 @@ def _build_parser() -> argparse.ArgumentParser:
 def _normalize_argv(argv: list[str]) -> list[str]:
     if not argv:
         return argv
-    if argv[0] in {"-h", "--help"}:
+    if argv[0] in {"-h", "--help", "-v", "--version"}:
         return argv
     if argv[0] in _SUBCOMMANDS:
         return argv

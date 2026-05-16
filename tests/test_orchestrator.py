@@ -33,6 +33,7 @@ def test_run_plan_writes_artifacts(tmp_path: Path, monkeypatch):
     assert "## Source: github" in captured["prompt"]
     assert "## Source: mcp" not in captured["prompt"]
     assert (out / "bundle.json").exists()
+    assert (out / "preflight-settings.json").exists()
     # UI assets (index.html/app.js/style.css) are served from the package's
     # STATIC_DIR and intentionally not copied into out_dir.
     assert not (out / "index.html").exists()
@@ -42,6 +43,42 @@ def test_run_plan_writes_artifacts(tmp_path: Path, monkeypatch):
     bundle = json.loads((out / "bundle.json").read_text())
     assert bundle["task"] == "demo"  # fixture's task wins; setdefault only fills if missing
     assert len(bundle["skills"]) == 1
+
+    # Verify preflight settings were persisted with expected deny list
+    preflight = json.loads((out / "preflight-settings.json").read_text())
+    assert "permissions" in preflight
+    assert "deny" in preflight["permissions"]
+    assert "Read" in preflight["permissions"]["deny"]
+    assert "Write" in preflight["permissions"]["deny"]
+    assert "Bash" in preflight["permissions"]["deny"]
+
+
+def test_run_plan_writes_opencode_preflight(tmp_path: Path, monkeypatch):
+    def fake_run(prompt: str, *, allowed_tools: list[str]) -> dict:
+        return valid_bundle()
+
+    monkeypatch.setitem(orchestrator.AGENTS, "opencode", fake_run)
+    monkeypatch.setattr(orchestrator, "serve", lambda *a, **kw: None)
+
+    out = tmp_path / "out"
+    orchestrator.run_plan(
+        "demo task",
+        agent="opencode",
+        sources=[],
+        out_dir=out,
+        port=7777,
+        open_browser=False,
+    )
+
+    assert (out / "bundle.json").exists()
+    assert (out / "preflight-config.json").exists()
+
+    # Verify preflight config has strict deny defaults
+    config = json.loads((out / "preflight-config.json").read_text())
+    assert config["permission"]["read"] == "deny"
+    assert config["permission"]["write"] == "deny"
+    assert config["permission"]["bash"] == "deny"
+    assert config["permission"]["webfetch"] == "allow"
 
 
 def test_write_derived_artifacts_filters_disabled(tmp_path: Path):

@@ -11,6 +11,8 @@ A bundle is a directory under `--out` (default `./ultra-plan/<slug>/`)
 containing:
 
     bundle.json                 canonical, validated bundle
+    preflight-settings.json     permissions used during planning (claude)
+    preflight-config.json       permissions used during planning (opencode)
     index.html, app.js, style.css   review UI (served locally)
 
 After you click Confirm in the review UI, the server also writes:
@@ -68,6 +70,9 @@ against prompt injection:
     and `http://169.254.169.254` (cloud metadata).
   - Prompts are piped via stdin, so leading `-` cannot be parsed as a flag.
   - The agent runs in a fresh temp `cwd` containing only `settings.json`.
+  - The preflight permissions are persisted to the bundle directory as
+    `preflight-settings.json` (claude) or `preflight-config.json` (opencode)
+    for transparency and audit purposes.
 
 These protections apply to `run` only. `execute` runs with the tools and
 permissions you confirmed in the review UI — review them before executing.

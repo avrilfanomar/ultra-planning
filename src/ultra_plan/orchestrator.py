@@ -7,6 +7,8 @@ from pathlib import Path
 
 from .agents import claude as _claude
 from .agents import opencode as _opencode
+from .agents.claude import _PREFLIGHT_SETTINGS as _CLAUDE_PREFLIGHT_SETTINGS
+from .agents.opencode import _PREFLIGHT_CONFIG as _OPENCODE_PREFLIGHT_CONFIG
 from .prompts import render_prompt
 from .review.server import copy_static, serve
 from .validate import validate_bundle
@@ -49,6 +51,17 @@ def run_plan(
     validate_bundle(bundle)
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "bundle.json").write_text(json.dumps(bundle, indent=2))
+
+    # Persist the preflight settings used during planning for transparency
+    if agent == "claude":
+        (out_dir / "preflight-settings.json").write_text(
+            json.dumps(_CLAUDE_PREFLIGHT_SETTINGS, indent=2)
+        )
+    elif agent == "opencode":
+        (out_dir / "preflight-config.json").write_text(
+            json.dumps(_OPENCODE_PREFLIGHT_CONFIG, indent=2)
+        )
+
     copy_static(out_dir)
     print(f"[ultra-plan] bundle written to {out_dir}")
     serve(out_dir, port=port, open_browser=open_browser)
