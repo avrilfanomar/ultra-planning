@@ -36,16 +36,18 @@ class TestClaudeAgent:
         assert result["plan_markdown"] == "test"
         mock_run.assert_called_once()
         args = mock_run.call_args
-        assert args[0][0] == [
-            "claude",
-            "-p",
-            "--output-format",
-            "json",
-            "--allowedTools",
-            "Read,Write",
-        ]
+        cmd = args[0][0]
+        assert cmd[:4] == ["claude", "-p", "--output-format", "json"]
+        # --settings <path> and --allowedTools <list> must both be present
+        assert "--settings" in cmd
+        settings_idx = cmd.index("--settings")
+        assert cmd[settings_idx + 1].endswith("settings.json")
+        tools_idx = cmd.index("--allowedTools")
+        assert cmd[tools_idx + 1] == "Read,Write"
         assert args[1]["input"] == "test prompt"
         assert args[1]["check"] is True
+        # cwd must be sandboxed (matches the temp dir holding settings.json)
+        assert args[1]["cwd"] is not None
 
     def test_run_success_with_direct_json(self):
         """Test successful run with direct JSON in stdout."""

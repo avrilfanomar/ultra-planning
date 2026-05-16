@@ -18,7 +18,7 @@ AGENTS: dict[str, AgentFn] = {
     "opencode": _opencode.run,
 }
 
-DEFAULT_ALLOWED_TOOLS = ["WebSearch", "WebFetch", "Read", "Write", "Bash(curl:*)"]
+DEFAULT_ALLOWED_TOOLS = ["WebSearch", "WebFetch"]
 
 
 def slugify(s: str) -> str:

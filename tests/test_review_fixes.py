@@ -39,7 +39,7 @@ def test_claude_pipes_prompt_via_stdin(monkeypatch):
 def test_opencode_pipes_prompt_via_stdin(monkeypatch):
     captured: dict = {}
 
-    def fake_run(cmd, *, input=None, capture_output=False, text=False, check=False):
+    def fake_run(cmd, *, input=None, **kwargs):
         captured["cmd"] = cmd
         captured["input"] = input
         result = MagicMock()

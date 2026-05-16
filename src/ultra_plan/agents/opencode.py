@@ -1,29 +1,62 @@
 from __future__ import annotations
 
+import json
+import os
 import subprocess
+import tempfile
+from pathlib import Path
 
+from ._env import scrub_env
 from ._extract import extract_bundle
+
+# Strict preflight config. opencode discovers config in the working dir / git
+# root, so we drop this into the sandbox tempdir and run from there.
+# `allowed_tools` from the caller is enforced via this materialized policy
+# rather than per-invocation CLI flags (opencode has no equivalent of
+# claude's --allowedTools).
+_PREFLIGHT_CONFIG: dict = {
+    "$schema": "https://opencode.ai/config.json",
+    "permission": {
+        "*": "deny",
+        "read": "deny",
+        "edit": "deny",
+        "write": "deny",
+        "bash": "deny",
+        "webfetch": "allow",
+        "websearch": "allow",
+        "external_directory": "deny",
+    },
+}
 
 
 def run(prompt: str, *, allowed_tools: list[str]) -> dict:
-    # Pipe the prompt via stdin so a prompt starting with "-" can never be
-    # misinterpreted as a CLI flag. `--dangerously-skip-permissions` keeps
-    # the run non-interactive (opencode has no per-tool allowlist flag;
-    # tool access is configured via agent definitions, not at runtime, so
-    # `allowed_tools` is accepted for interface parity but not enforced here).
+    # `allowed_tools` is enforced via the materialized opencode.json policy,
+    # not via CLI flags. Accepted for interface parity with the claude agent.
     del allowed_tools
-    cmd = ["opencode", "run", "--dangerously-skip-permissions"]
-    try:
-        proc = subprocess.run(
-            cmd, input=prompt, capture_output=True, text=True, check=True
-        )
-    except FileNotFoundError as e:
-        raise RuntimeError(
-            "opencode CLI not found on PATH - install opencode"
-        ) from e
-    except subprocess.CalledProcessError as e:
-        stderr_tail = (e.stderr or "")[-500:]
-        raise RuntimeError(
-            f"opencode CLI failed with exit code {e.returncode}: {stderr_tail}"
-        ) from e
-    return extract_bundle(proc.stdout)
+    with tempfile.TemporaryDirectory(prefix="ultra-plan-preflight-") as tmp:
+        tmp_path = Path(tmp)
+        (tmp_path / "opencode.json").write_text(json.dumps(_PREFLIGHT_CONFIG))
+
+        cmd = ["opencode", "run"]
+        env = scrub_env(os.environ)
+
+        try:
+            proc = subprocess.run(
+                cmd,
+                input=prompt,
+                capture_output=True,
+                text=True,
+                check=True,
+                env=env,
+                cwd=tmp_path,
+            )
+        except FileNotFoundError as e:
+            raise RuntimeError(
+                "opencode CLI not found on PATH - install opencode"
+            ) from e
+        except subprocess.CalledProcessError as e:
+            stderr_tail = (e.stderr or "")[-500:]
+            raise RuntimeError(
+                f"opencode CLI failed with exit code {e.returncode}: {stderr_tail}"
+            ) from e
+        return extract_bundle(proc.stdout)
