@@ -105,6 +105,18 @@ prompt-recommendations.md
 
 No installation is performed — write-only by design.
 
+## Security
+
+The preflight planning agent runs against attacker-controlled web content (search results, fetched pages, MCP registries), so it is hardened against prompt injection:
+
+- **Environment scrubbing** — the agent subprocess inherits only `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `TERM`, `LANG`, `TZ`, `TMPDIR`, and variables prefixed with `CLAUDE_`, `OPENCODE_`, `LC_`, or `XDG_`. Tokens, API keys, and `AWS_*`/`GITHUB_*`-style secrets are dropped so a prompt-injected agent cannot exfiltrate them via `WebFetch` URLs. See `src/ultra_plan/agents/_env.py`.
+- **Defense-in-depth permission denies** — preflight runs ship a generated `settings.json` (Claude) / equivalent (opencode) that denies `Read`, `Write`, `Edit`, `NotebookEdit`, and `Bash` outright, regardless of any broader `--allowedTools` list passed in. Planning is read-only against the web; it cannot touch the filesystem or shell.
+- **SSRF protections** — `WebFetch` denies cover `file://`, `http://localhost`, `http://127.0.0.1`, and the cloud metadata service `http://169.254.169.254` to prevent the agent from reading local files or stealing instance credentials.
+- **Stdin-fed prompts** — the task prompt is piped via stdin (not argv), so prompts beginning with `-` cannot be misinterpreted as CLI flags.
+- **Isolated working directory** — preflight runs `cwd` into a fresh temp dir containing only the materialized `settings.json`, limiting any path-relative tool reach.
+
+These hardenings apply to the `run`/preflight phase. The `execute` phase runs with whatever tools and permissions you confirmed in the bundle — review them before executing.
+
 ## Execution
 
 Once you've reviewed and confirmed a bundle, execute it with:
