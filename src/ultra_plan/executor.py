@@ -32,7 +32,7 @@ def _build_tool_list(tools: list[dict]) -> list[str]:
     return tool_names
 
 
-def _build_execution_prompt(bundle: dict) -> str:
+def _build_execution_prompt(bundle: dict, bundle_dir: Path | None = None) -> str:
     """Build the execution prompt from bundle components."""
     task = bundle.get("task", "")
     prompt_recs = bundle.get("prompt_recommendations", "")
@@ -41,8 +41,13 @@ def _build_execution_prompt(bundle: dict) -> str:
 
     parts = []
 
-    # Prepend skills context when present
-    skills_ctx = build_skills_context(bundle)
+    # Inline skills content statically when bundle_dir/skills/<name>/SKILL.md exists.
+    skills_ctx, missing_skills = build_skills_context(bundle, bundle_dir)
+    if missing_skills:
+        print(
+            "[ultra-plan] warning: skill content not found on disk, falling "
+            "back to URL bullets for: " + ", ".join(missing_skills)
+        )
     if skills_ctx:
         parts.append(skills_ctx)
         parts.append("\n")
@@ -162,7 +167,7 @@ def execute_claude(
         The completed subprocess result.
     """
     # Build the execution prompt
-    prompt = _build_execution_prompt(bundle)
+    prompt = _build_execution_prompt(bundle, bundle_dir)
 
     # Build tool allowlist
     tools = bundle.get("tools", [])
@@ -256,7 +261,7 @@ def execute_opencode(
         The completed subprocess result.
     """
     # Build the execution prompt
-    prompt = _build_execution_prompt(bundle)
+    prompt = _build_execution_prompt(bundle, bundle_dir)
 
     cmd = ["opencode", "run"]
 

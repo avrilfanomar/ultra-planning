@@ -161,21 +161,81 @@ def build_opencode_config(bundle: dict) -> tuple[dict, list[str]]:
     return result, skipped
 
 
-def build_skills_context(bundle: dict) -> str:
-    """Return a markdown block listing each enabled skill.
+def build_skills_context(
+    bundle: dict,
+    bundle_dir: "Path | None" = None,
+) -> tuple[str, list[str]]:
+    """Return a markdown block inlining each enabled skill's content.
 
-    Returns an empty string when no skills are present or all are disabled.
-    Otherwise returns a ``# Skills`` section with one bullet per skill.
+    For every enabled skill, attempt to read ``bundle_dir/skills/<name>/SKILL.md``
+    (plus any sibling ``*.md`` files in the same directory) and inline the
+    content under a ``## <name>`` subsection so the executing agent receives
+    the skill body as already-loaded context — no runtime ``Skill()`` calls or
+    fetch decisions required.
+
+    When ``bundle_dir`` is ``None`` or a skill's content cannot be resolved on
+    disk, the skill falls back to a single bullet line listing its name, URL,
+    and rationale, and its name is appended to the returned ``missing`` list
+    so callers can surface a warning.
+
+    Returns a ``(context, missing)`` tuple. ``context`` is the empty string
+    when no skills are enabled.
     """
+    from pathlib import Path as _Path
+
     skills = bundle.get("skills", [])
     enabled = [s for s in skills if s.get("enabled", True) is not False]
+    missing: list[str] = []
     if not enabled:
-        return ""
+        return "", missing
 
-    lines = ["# Skills\n"]
+    skills_root: "_Path | None" = None
+    if bundle_dir is not None:
+        skills_root = _Path(bundle_dir) / "skills"
+
+    lines = [
+        "# Skills (loaded statically)\n",
+        "The following skill content has been inlined into your context. "
+        "Treat it as already loaded — do not invoke the Skill tool to fetch "
+        "these, and do not skip them based on relevance heuristics.\n",
+    ]
+
     for skill in enabled:
         name = skill.get("name", "")
         source_url = skill.get("source_url", "")
         rationale = skill.get("rationale", "")
-        lines.append(f"- **{name}** ({source_url}): {rationale}")
-    return "\n".join(lines)
+
+        skill_dir = skills_root / name if skills_root is not None else None
+        md_files: list[_Path] = []
+        if skill_dir is not None and skill_dir.is_dir():
+            primary = skill_dir / "SKILL.md"
+            if primary.is_file():
+                md_files.append(primary)
+            for extra in sorted(skill_dir.glob("*.md")):
+                if extra.name == "SKILL.md":
+                    continue
+                md_files.append(extra)
+
+        if md_files:
+            lines.append(f"## {name}")
+            lines.append(f"_Source: {source_url}_")
+            if rationale:
+                lines.append(f"_Rationale: {rationale}_")
+            for md in md_files:
+                try:
+                    body = md.read_text()
+                except OSError:
+                    missing.append(name)
+                    continue
+                lines.append(f"\n<!-- {md.name} -->")
+                lines.append(body.rstrip())
+            lines.append("")
+        else:
+            missing.append(name)
+            lines.append(
+                f"- **{name}** ({source_url}): {rationale} "
+                f"_(skill content not found at skills/{name}/SKILL.md — agent "
+                f"will not have the skill body available)_"
+            )
+
+    return "\n".join(lines), missing

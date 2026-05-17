@@ -221,27 +221,32 @@ class TestBuildOpencodeConfig:
 class TestBuildSkillsContext:
     def test_enabled_skill_included(self):
         bundle = valid_bundle()
-        result = build_skills_context(bundle)
+        result, missing = build_skills_context(bundle)
         assert "# Skills" in result
         assert "python-skill" in result
         assert "https://github.com/anthropics/skills" in result
         assert "Python scaffolding." in result
+        # No bundle_dir provided → content can't resolve, skill is missing.
+        assert missing == ["python-skill"]
 
     def test_disabled_skill_excluded(self):
         bundle = valid_bundle()
         bundle["skills"][0]["enabled"] = False
-        result = build_skills_context(bundle)
+        result, missing = build_skills_context(bundle)
         assert result == ""
+        assert missing == []
 
     def test_no_skills_returns_empty_string(self):
         bundle = {"task": "x"}
-        result = build_skills_context(bundle)
+        result, missing = build_skills_context(bundle)
         assert result == ""
+        assert missing == []
 
     def test_empty_skills_list_returns_empty_string(self):
         bundle = {"task": "x", "skills": []}
-        result = build_skills_context(bundle)
+        result, missing = build_skills_context(bundle)
         assert result == ""
+        assert missing == []
 
     def test_multiple_skills_one_disabled(self):
         bundle = {
@@ -260,9 +265,10 @@ class TestBuildSkillsContext:
                 },
             ]
         }
-        result = build_skills_context(bundle)
+        result, missing = build_skills_context(bundle)
         assert "skill-a" in result
         assert "skill-b" not in result
+        assert missing == ["skill-a"]
 
     def test_bullet_format(self):
         bundle = {
@@ -274,5 +280,52 @@ class TestBuildSkillsContext:
                 }
             ]
         }
-        result = build_skills_context(bundle)
+        result, missing = build_skills_context(bundle)
         assert "- **my-skill** (https://example.com/skill): Useful." in result
+        assert missing == ["my-skill"]
+
+    def test_inlines_skill_md_when_present(self, tmp_path):
+        skill_dir = tmp_path / "skills" / "my-skill"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text("# My Skill\n\nDo the thing.")
+        bundle = {
+            "skills": [
+                {
+                    "name": "my-skill",
+                    "source_url": "https://example.com/s",
+                    "rationale": "R",
+                }
+            ]
+        }
+        result, missing = build_skills_context(bundle, tmp_path)
+        assert missing == []
+        assert "## my-skill" in result
+        assert "Do the thing." in result
+        # Bullet fallback must not appear when content was inlined.
+        assert "- **my-skill**" not in result
+
+    def test_inlines_sibling_md_files(self, tmp_path):
+        skill_dir = tmp_path / "skills" / "multi"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text("primary body")
+        (skill_dir / "extra.md").write_text("extra body")
+        bundle = {
+            "skills": [
+                {"name": "multi", "source_url": "u", "rationale": "r"}
+            ]
+        }
+        result, missing = build_skills_context(bundle, tmp_path)
+        assert missing == []
+        assert "primary body" in result
+        assert "extra body" in result
+
+    def test_falls_back_when_dir_missing(self, tmp_path):
+        bundle = {
+            "skills": [
+                {"name": "absent", "source_url": "u", "rationale": "r"}
+            ]
+        }
+        result, missing = build_skills_context(bundle, tmp_path)
+        assert missing == ["absent"]
+        assert "- **absent**" in result
+        assert "skill content not found" in result
