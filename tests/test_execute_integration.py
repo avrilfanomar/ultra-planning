@@ -151,3 +151,46 @@ def test_execute_pass_env_flag_threaded(tmp_path: Path, monkeypatch: pytest.Monk
     assert env["MY_SECRET"] == "shhh"
     # ANTHROPIC_API_KEY was NOT passed through (not in --pass-env)
     assert "ANTHROPIC_API_KEY" not in env
+
+
+def test_execute_resolves_relative_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Execute command resolves relative bundle_dir and cwd to absolute paths."""
+    # Create bundle in a subdirectory
+    bundle_dir = tmp_path / "bundles" / "test-bundle"
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "bundle.json").write_text(json.dumps(valid_bundle()))
+
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+
+    # Change to tmp_path so we can use relative paths
+    monkeypatch.chdir(tmp_path)
+
+    mock_run = MagicMock()
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+    monkeypatch.setattr("subprocess.run", mock_run)
+
+    # Use relative paths in the command
+    result = main([
+        "execute",
+        "./bundles/test-bundle",  # Relative path to bundle
+        "--agent", "claude",
+        "--headless",
+        "--yes",
+        "--cwd", "./work",  # Relative path to work dir
+    ])
+
+    assert result == 0
+
+    # Verify that subprocess was called with absolute paths
+    kwargs = mock_run.call_args[1]
+    assert kwargs["cwd"].is_absolute()
+    assert kwargs["cwd"] == work_dir
+
+    # Verify settings.json path in command is absolute
+    cmd = mock_run.call_args[0][0]
+    if "--settings" in cmd:
+        settings_idx = cmd.index("--settings")
+        settings_path = Path(cmd[settings_idx + 1])
+        assert settings_path.is_absolute()
+        assert settings_path == bundle_dir / "settings.json"

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import re
-import tomli
 from pathlib import Path
+
+import tomli
 
 
 def test_version_consistency():

@@ -70,12 +70,12 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.command == "review":
-            review_existing(Path(args.dir), port=args.port, open_browser=not args.no_browser)
+            review_existing(Path(args.dir).resolve(), port=args.port, open_browser=not args.no_browser)
             return 0
 
         if args.command == "execute":
-            bundle_dir = Path(args.dir)
-            cwd = Path(args.cwd) if args.cwd else None
+            bundle_dir = Path(args.dir).resolve()
+            cwd = Path(args.cwd).resolve() if args.cwd else None
             execute_bundle(
                 bundle_dir,
                 agent=args.agent,
@@ -87,7 +87,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         sources = resolve_sources(args.sources, args.preset)
-        out = Path(args.out) if args.out else default_out_dir(args.task)
+        out = Path(args.out).resolve() if args.out else default_out_dir(args.task).resolve()
         run_plan(
             args.task,
             agent=args.agent,
