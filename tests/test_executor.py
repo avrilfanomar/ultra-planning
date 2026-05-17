@@ -254,6 +254,159 @@ def test_execute_bundle_capture_non_json(tmp_path: Path, monkeypatch: pytest.Mon
     assert not (tmp_path / "execute-result.json").exists()
 
 
+def _bundle_with_mcp_transport() -> dict:
+    """valid_bundle() with command/url added so the MCP tool survives materialization."""
+    bundle = valid_bundle()
+    bundle["tools"][0]["command"] = ["npx", "-y", "@modelcontextprotocol/server-postgres"]
+    bundle["tools"].append(
+        {
+            "name": "remote-mcp",
+            "kind": "mcp",
+            "source_url": "https://example.com",
+            "install": "remote",
+            "rationale": "Remote MCP",
+            "url": "https://mcp.example.com",
+        }
+    )
+    bundle["permissions"] = {
+        "allow": ["WebFetch", "Write", "Bash(git:*)"],
+        "deny": ["Bash(rm:*)"],
+        "ask": ["Edit"],
+    }
+    return bundle
+
+
+class TestMaterializedConfigMatchesBundle:
+    """The on-disk settings.json / opencode.json must faithfully reflect bundle.json.
+
+    With the standalone permissions.json artifact dropped, these materialized files
+    are the only post-bundle representations of permission and MCP state — drift
+    between them and bundle.json would silently change what the executing agent sees.
+    """
+
+    def _write_bundle(self, tmp_path: Path, bundle: dict) -> dict:
+        (tmp_path / "bundle.json").write_text(json.dumps(bundle, indent=2))
+        return json.loads((tmp_path / "bundle.json").read_text())
+
+    def test_claude_settings_permissions_match_bundle(self, tmp_path: Path):
+        bundle = self._write_bundle(tmp_path, _bundle_with_mcp_transport())
+        _materialize_agent_config(bundle, tmp_path, "claude")
+
+        settings = json.loads((tmp_path / "settings.json").read_text())
+        assert settings["permissions"]["allow"] == bundle["permissions"]["allow"]
+        assert settings["permissions"]["deny"] == bundle["permissions"]["deny"]
+        assert settings["permissions"]["ask"] == bundle["permissions"]["ask"]
+
+    def test_claude_settings_mcp_servers_match_bundle(self, tmp_path: Path):
+        bundle = self._write_bundle(tmp_path, _bundle_with_mcp_transport())
+        _materialize_agent_config(bundle, tmp_path, "claude")
+
+        settings = json.loads((tmp_path / "settings.json").read_text())
+        servers = settings["mcpServers"]
+
+        bundle_mcp_names = {
+            t["name"] for t in bundle["tools"]
+            if t.get("kind") == "mcp" and t.get("enabled", True) is not False
+        }
+        assert set(servers.keys()) == bundle_mcp_names
+
+        # Local MCP: command/args round-trip from bundle's command list.
+        cmd = bundle["tools"][0]["command"]
+        assert servers["postgres-mcp"]["command"] == cmd[0]
+        assert servers["postgres-mcp"]["args"] == cmd[1:]
+
+        # Remote MCP: url round-trip.
+        assert servers["remote-mcp"]["url"] == bundle["tools"][1]["url"]
+
+    def test_claude_settings_omits_disabled_mcp(self, tmp_path: Path):
+        bundle = _bundle_with_mcp_transport()
+        bundle["tools"][0]["enabled"] = False
+        bundle = self._write_bundle(tmp_path, bundle)
+        _materialize_agent_config(bundle, tmp_path, "claude")
+
+        settings = json.loads((tmp_path / "settings.json").read_text())
+        assert "postgres-mcp" not in settings.get("mcpServers", {})
+
+    def test_opencode_config_permissions_reflect_bundle(self, tmp_path: Path):
+        bundle = self._write_bundle(tmp_path, _bundle_with_mcp_transport())
+        _materialize_agent_config(bundle, tmp_path, "opencode")
+
+        cfg = json.loads((tmp_path / "opencode.json").read_text())
+        perm = cfg["permission"]
+        # Bundle allow has "Write" → write=allow.
+        assert perm["write"] == "allow"
+        # Bundle allow has "Bash(git:*)" but deny has "Bash(rm:*)" → bash=ask (deny wins).
+        assert perm["bash"] == "ask"
+        # "edit" is not in allow; no deny entry matches → key omitted.
+        assert "edit" not in perm
+
+    def test_opencode_config_mcp_match_bundle(self, tmp_path: Path):
+        bundle = self._write_bundle(tmp_path, _bundle_with_mcp_transport())
+        _materialize_agent_config(bundle, tmp_path, "opencode")
+
+        cfg = json.loads((tmp_path / "opencode.json").read_text())
+        mcp = cfg["mcp"]
+
+        bundle_mcp_names = {
+            t["name"] for t in bundle["tools"]
+            if t.get("kind") == "mcp" and t.get("enabled", True) is not False
+        }
+        assert set(mcp.keys()) == bundle_mcp_names
+
+        # Local MCP: command is normalised to a list matching bundle.
+        assert mcp["postgres-mcp"]["type"] == "local"
+        assert mcp["postgres-mcp"]["command"] == bundle["tools"][0]["command"]
+
+        # Remote MCP: url round-trip.
+        assert mcp["remote-mcp"]["type"] == "remote"
+        assert mcp["remote-mcp"]["url"] == bundle["tools"][1]["url"]
+
+    def test_execute_bundle_writes_settings_matching_bundle_on_disk(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Full path: bundle.json on disk → execute_bundle → settings.json matches."""
+        bundle = _bundle_with_mcp_transport()
+        (tmp_path / "bundle.json").write_text(json.dumps(bundle, indent=2))
+
+        def mock_run(*args, **kwargs):
+            class MockProc:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            return MockProc()
+
+        monkeypatch.setattr("subprocess.run", mock_run)
+        execute_bundle(tmp_path, agent="claude", interactive=False, yes=True)
+
+        on_disk_bundle = json.loads((tmp_path / "bundle.json").read_text())
+        settings = json.loads((tmp_path / "settings.json").read_text())
+        assert settings["permissions"]["allow"] == on_disk_bundle["permissions"]["allow"]
+        assert settings["permissions"]["deny"] == on_disk_bundle["permissions"]["deny"]
+        assert "postgres-mcp" in settings["mcpServers"]
+        assert "remote-mcp" in settings["mcpServers"]
+
+    def test_execute_bundle_writes_opencode_matching_bundle_on_disk(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        bundle = _bundle_with_mcp_transport()
+        (tmp_path / "bundle.json").write_text(json.dumps(bundle, indent=2))
+
+        def mock_run(*args, **kwargs):
+            class MockProc:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            return MockProc()
+
+        monkeypatch.setattr("subprocess.run", mock_run)
+        execute_bundle(tmp_path, agent="opencode", interactive=False, yes=True)
+
+        cfg = json.loads((tmp_path / "opencode.json").read_text())
+        assert cfg["permission"]["write"] == "allow"
+        assert cfg["permission"]["bash"] == "ask"
+        assert set(cfg["mcp"].keys()) == {"postgres-mcp", "remote-mcp"}
+
+
 def test_execute_opencode_pipes_stdin_headless(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """opencode headless mode pipes prompt via stdin (no positional prompt argv)."""
     bundle_file = tmp_path / "bundle.json"

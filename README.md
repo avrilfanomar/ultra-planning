@@ -20,7 +20,6 @@ After you click Confirm in the review UI, the server also writes:
     expected-outcome.md         deliverables and success criteria
     skills.json                 enabled skills only
     tools.json                  enabled tools only
-    permissions.json            proposed settings.json patch
     plan.md                     implementation plan
     prompt-recommendations.md   instructions for the executing agent
 

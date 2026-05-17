@@ -56,9 +56,6 @@ def write_derived_artifacts(out_dir: Path, bundle: dict) -> None:
     _atomic_write_text(
         out_dir / "tools.json", json.dumps(_enabled(bundle.get("tools", [])), indent=2)
     )
-    _atomic_write_text(
-        out_dir / "permissions.json", json.dumps(bundle.get("permissions", {}), indent=2)
-    )
     _atomic_write_text(out_dir / "plan.md", bundle.get("plan_markdown", ""))
     _atomic_write_text(
         out_dir / "prompt-recommendations.md", bundle.get("prompt_recommendations", "")
