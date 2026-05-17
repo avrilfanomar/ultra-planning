@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 """Pure functions that build agent-specific configuration from an ultra-plan bundle.
 
 No subprocess or side effects — callers are responsible for writing the returned
@@ -163,7 +165,7 @@ def build_opencode_config(bundle: dict) -> tuple[dict, list[str]]:
 
 def build_skills_context(
     bundle: dict,
-    bundle_dir: "Path | None" = None,
+    bundle_dir: Path | None = None,
 ) -> tuple[str, list[str]]:
     """Return a markdown block inlining each enabled skill's content.
 
@@ -181,17 +183,15 @@ def build_skills_context(
     Returns a ``(context, missing)`` tuple. ``context`` is the empty string
     when no skills are enabled.
     """
-    from pathlib import Path as _Path
-
     skills = bundle.get("skills", [])
     enabled = [s for s in skills if s.get("enabled", True) is not False]
     missing: list[str] = []
     if not enabled:
         return "", missing
 
-    skills_root: "_Path | None" = None
+    skills_root: Path | None = None
     if bundle_dir is not None:
-        skills_root = _Path(bundle_dir) / "skills"
+        skills_root = Path(bundle_dir) / "skills"
 
     lines = [
         "# Skills (loaded statically)\n",
@@ -206,7 +206,7 @@ def build_skills_context(
         rationale = skill.get("rationale", "")
 
         skill_dir = skills_root / name if skills_root is not None else None
-        md_files: list[_Path] = []
+        md_files: list[Path] = []
         if skill_dir is not None and skill_dir.is_dir():
             primary = skill_dir / "SKILL.md"
             if primary.is_file():
