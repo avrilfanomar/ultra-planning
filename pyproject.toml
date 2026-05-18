@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ultra-plan"
-version = "0.1.8"
+version = "0.1.9"
 description = "Ultra planning: web-sourced skills/tools/permissions bundle for coding agents."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -35,7 +35,7 @@ Source = "https://github.com/avrilfanomar/ultra-planning"
 Issues = "https://github.com/avrilfanomar/ultra-planning/issues"
 
 [project.optional-dependencies]
-dev = ["pytest>=7", "pytest-cov>=4", "ruff>=0.6", "build>=1", "twine>=5"]
+dev = ["pytest>=7", "pytest-cov>=4", "ruff>=0.6", "build>=1", "twine>=5", "tomli>=2"]
 
 [project.scripts]
 ultra-plan = "ultra_plan.cli:main"
