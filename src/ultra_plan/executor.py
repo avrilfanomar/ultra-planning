@@ -8,9 +8,14 @@ import sys
 import time
 from pathlib import Path
 
+from ._io import atomic_write_text
+from ._logging import get_logger
+from ._timeout import resolve_timeout
 from .agent_setup import build_claude_settings, build_opencode_config, build_skills_context
 from .agents._env import scrub_env
 from .agents._errors import classify_cli_error
+
+log = get_logger(__name__)
 
 
 def _build_tool_list(tools: list[dict]) -> list[str]:
@@ -44,9 +49,9 @@ def _build_execution_prompt(bundle: dict, bundle_dir: Path | None = None) -> str
     # Inline skills content statically when bundle_dir/skills/<name>/SKILL.md exists.
     skills_ctx, missing_skills = build_skills_context(bundle, bundle_dir)
     if missing_skills:
-        print(
-            "[ultra-plan] warning: skill content not found on disk, falling "
-            "back to URL bullets for: " + ", ".join(missing_skills)
+        log.warning(
+            "skill content not found on disk, falling back to URL bullets for: %s",
+            ", ".join(missing_skills),
         )
     if skills_ctx:
         parts.append(skills_ctx)
@@ -82,27 +87,21 @@ def _materialize_agent_config(bundle: dict, bundle_dir: Path, agent: str) -> Pat
     if agent == "claude":
         cfg, skipped = build_claude_settings(bundle)
         if skipped:
-            print(
-                "[ultra-plan] warning: MCP tools missing transport, skipped: "
-                + ", ".join(skipped)
-            )
+            log.warning("MCP tools missing transport, skipped: %s", ", ".join(skipped))
         if not cfg:
             return None
         dest = bundle_dir / "settings.json"
-        dest.write_text(json.dumps(cfg, indent=2))
+        atomic_write_text(dest, json.dumps(cfg, indent=2))
         return dest
     elif agent == "opencode":
         cfg, skipped = build_opencode_config(bundle)
         if skipped:
-            print(
-                "[ultra-plan] warning: MCP tools missing transport, skipped: "
-                + ", ".join(skipped)
-            )
+            log.warning("MCP tools missing transport, skipped: %s", ", ".join(skipped))
         # Only write when there is content beyond the bare $schema key
         if not any(k != "$schema" for k in cfg):
             return None
         dest = bundle_dir / "opencode.json"
-        dest.write_text(json.dumps(cfg, indent=2))
+        atomic_write_text(dest, json.dumps(cfg, indent=2))
         return dest
     return None
 
@@ -136,10 +135,10 @@ def _write_headless_capture(bundle_dir: Path, proc: subprocess.CompletedProcess)
         result_path = bundle_dir / "execute-result.json"
     except (json.JSONDecodeError, ValueError):
         result_path = bundle_dir / "execute-result.txt"
-    result_path.write_text(stdout)
+    atomic_write_text(result_path, stdout)
 
     if stderr:
-        (bundle_dir / "execute-stderr.log").write_text(stderr)
+        atomic_write_text(bundle_dir / "execute-stderr.log", stderr)
 
     return result_path
 
@@ -151,6 +150,7 @@ def execute_claude(
     cwd: Path | None = None,
     bundle_dir: Path | None = None,
     pass_env: list[str] | None = None,
+    timeout: int | None = None,
 ) -> subprocess.CompletedProcess:
     """Execute a task using the Claude CLI with bundle configuration.
 
@@ -195,13 +195,13 @@ def execute_claude(
     # Prepare environment (scrubbed + opt-in passthrough)
     env = _build_execute_env(pass_env)
 
-    print(f"[ultra-plan] Executing with {len(tool_list)} allowed tools")
+    log.info("Executing with %d allowed tools", len(tool_list))
 
     try:
         if interactive:
             # Interactive sessions need a real TTY: stdin is reserved for the
             # user, so we pass the prompt as a positional argument instead.
-            print(f"[ultra-plan] Command: {' '.join(cmd)} <prompt>")
+            log.info("Command: %s <prompt>", " ".join(cmd))
             cmd.append(prompt)
             proc = subprocess.run(
                 cmd,
@@ -213,7 +213,8 @@ def execute_claude(
             return proc
         # Headless mode: feed prompt via stdin so it can never be mistaken for
         # a CLI flag, even if it begins with "-".
-        print(f"[ultra-plan] Command: {' '.join(cmd)} (prompt via stdin)")
+        log.info("Command: %s (prompt via stdin)", " ".join(cmd))
+        effective_timeout = resolve_timeout(timeout)
         proc = subprocess.run(
             cmd,
             input=prompt,
@@ -222,13 +223,16 @@ def execute_claude(
             check=True,
             env=env,
             cwd=cwd,
+            timeout=effective_timeout,
         )
         if bundle_dir is not None:
             result_path = _write_headless_capture(bundle_dir, proc)
-            print(f"[ultra-plan] Wrote execute output to {result_path}")
+            log.info("Wrote execute output to %s", result_path)
         return proc
     except FileNotFoundError as e:
         raise RuntimeError("claude CLI not found on PATH - install Claude Code") from e
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(f"claude CLI timed out after {e.timeout:.0f}s") from e
     except subprocess.CalledProcessError as e:
         # Best-effort: still persist any captured output for post-mortem.
         if bundle_dir is not None and not interactive:
@@ -246,6 +250,7 @@ def execute_opencode(
     cwd: Path | None = None,
     bundle_dir: Path | None = None,
     pass_env: list[str] | None = None,
+    timeout: int | None = None,
 ) -> subprocess.CompletedProcess:
     """Execute a task using the opencode CLI with bundle configuration.
 
@@ -291,21 +296,22 @@ def execute_opencode(
                         ts = time.strftime("%Y%m%d-%H%M%S")
                         backup = cwd / f"opencode.json.bak.{ts}"
                         shutil.copy(str(dest), str(backup))
-                        print(
-                            f"[ultra-plan] warning: existing opencode.json at {dest} "
-                            f"backed up to {backup} before overwrite"
+                        log.warning(
+                            "existing opencode.json at %s backed up to %s before overwrite",
+                            dest,
+                            backup,
                         )
                 shutil.copy(str(opencode_cfg), str(dest))
 
     env = _build_execute_env(pass_env)
 
-    print("[ultra-plan] Executing with opencode")
+    log.info("Executing with opencode")
 
     try:
         if interactive:
             # Interactive sessions need a TTY; pass the prompt positionally
             # using `--` so it can't be parsed as a flag.
-            print("[ultra-plan] Command: opencode run -- <prompt>")
+            log.info("Command: opencode run -- <prompt>")
             interactive_cmd = list(cmd) + ["--", prompt]
             proc = subprocess.run(
                 interactive_cmd,
@@ -316,7 +322,8 @@ def execute_opencode(
             )
             return proc
         # Headless: feed prompt via stdin (parity with claude headless).
-        print(f"[ultra-plan] Command: {' '.join(cmd)} (prompt via stdin)")
+        log.info("Command: %s (prompt via stdin)", " ".join(cmd))
+        effective_timeout = resolve_timeout(timeout)
         proc = subprocess.run(
             cmd,
             input=prompt,
@@ -325,13 +332,16 @@ def execute_opencode(
             check=True,
             env=env,
             cwd=effective_cwd,
+            timeout=effective_timeout,
         )
         if bundle_dir is not None:
             result_path = _write_headless_capture(bundle_dir, proc)
-            print(f"[ultra-plan] Wrote execute output to {result_path}")
+            log.info("Wrote execute output to %s", result_path)
         return proc
     except FileNotFoundError as e:
         raise RuntimeError("opencode CLI not found on PATH - install opencode") from e
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(f"opencode CLI timed out after {e.timeout:.0f}s") from e
     except subprocess.CalledProcessError as e:
         if bundle_dir is not None and not interactive:
             try:
@@ -366,6 +376,7 @@ def execute_bundle(
     cwd: Path | None = None,
     pass_env: list[str] | None = None,
     yes: bool = False,
+    timeout: int | None = None,
 ) -> subprocess.CompletedProcess:
     """Execute a bundle using the specified agent.
 
@@ -420,6 +431,7 @@ def execute_bundle(
             cwd=cwd,
             bundle_dir=bundle_dir,
             pass_env=pass_env,
+            timeout=timeout,
         )
     elif agent == "opencode":
         return execute_opencode(
@@ -428,6 +440,7 @@ def execute_bundle(
             cwd=cwd,
             bundle_dir=bundle_dir,
             pass_env=pass_env,
+            timeout=timeout,
         )
     else:
         raise ValueError(f"Unknown agent: {agent}")

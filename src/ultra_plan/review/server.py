@@ -11,6 +11,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+from .._io import atomic_write_text
+from .._logging import get_logger
+from ._ratelimit import TokenBucket
+
+log = get_logger(__name__)
+
 STATIC_DIR = Path(__file__).parent / "static"
 
 MAX_BODY = 10 * 1024 * 1024  # 10 MiB hard cap on request body.
@@ -19,28 +25,41 @@ MAX_BODY = 10 * 1024 * 1024  # 10 MiB hard cap on request body.
 # a per-run token. See `_serve_index_html` below.
 _TOKEN_PLACEHOLDER = "__ULTRA_PLAN_TOKEN__"
 
+# Strict CSP: same-origin only; no inline scripts/styles; no eval; no framing.
+_CSP = (
+    "default-src 'self'; "
+    "script-src 'self'; "
+    "style-src 'self'; "
+    "img-src 'self' data:; "
+    "connect-src 'self'; "
+    "object-src 'none'; "
+    "base-uri 'self'; "
+    "frame-ancestors 'none'"
+)
 
-def _atomic_write_text(path: Path, content: str) -> None:
-    """Write `content` to `path` atomically.
+_SECURITY_HEADERS: tuple[tuple[str, str], ...] = (
+    ("Content-Security-Policy", _CSP),
+    ("X-Content-Type-Options", "nosniff"),
+    ("Referrer-Policy", "no-referrer"),
+    ("X-Frame-Options", "DENY"),
+    ("Cache-Control", "no-store"),
+)
 
-    Writes to `<path>.tmp` first, then `os.replace`s into place so a crash
-    mid-write cannot leave a half-written file at the destination.
-    """
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(content)
-    os.replace(tmp, path)
+
+# Re-export under the old private name so external/test imports don't break.
+_atomic_write_text = atomic_write_text
 
 
 def _validate_or_error(bundle: dict) -> str | None:
     from jsonschema import ValidationError
 
-    from ..validate import validate_bundle
+    from ..validate import format_validation_error, validate_bundle
 
     try:
         validate_bundle(bundle)
         return None
     except ValidationError as e:
-        return e.message
+        return format_validation_error(e)
 
 
 def _enabled(items: list) -> list:
@@ -78,14 +97,23 @@ def copy_static(out_dir: Path) -> None:
 class _Handler(BaseHTTPRequestHandler):
     out_dir: Path = Path(".")
     token: str = ""
+    ratelimiter: TokenBucket | None = None
 
     def log_message(self, format: str, *args: object) -> None:  # silence
         return
+
+    def _check_rate_limit(self) -> bool:
+        if self.ratelimiter is None:
+            return True
+        client_ip = self.client_address[0] if self.client_address else "unknown"
+        return self.ratelimiter.check(client_ip)
 
     def _send(self, status: int, body: bytes, ctype: str = "application/json") -> None:
         self.send_response(status)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
+        for name, value in _SECURITY_HEADERS:
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
 
@@ -112,7 +140,8 @@ class _Handler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin")
         if not origin:
             return True
-        port = self.server.server_address[1]
+        addr = self.server.server_address
+        port = addr[1] if isinstance(addr, tuple) else 0
         return origin in (
             f"http://127.0.0.1:{port}",
             f"http://localhost:{port}",
@@ -171,6 +200,8 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(403, json.dumps({"error": "forbidden origin"}).encode())
         if not self._check_token():
             return self._send(403, json.dumps({"error": "forbidden token"}).encode())
+        if not self._check_rate_limit():
+            return self._send(429, json.dumps({"error": "rate limit exceeded"}).encode())
         body = self._read_body()
         if body is None:
             return self._send(413, json.dumps({"error": "request body too large"}).encode())
@@ -191,6 +222,8 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(403, json.dumps({"error": "forbidden origin"}).encode())
         if not self._check_token():
             return self._send(403, json.dumps({"error": "forbidden token"}).encode())
+        if not self._check_rate_limit():
+            return self._send(429, json.dumps({"error": "rate limit exceeded"}).encode())
         body = self._read_body()
         if body is None:
             return self._send(413, json.dumps({"error": "request body too large"}).encode())
@@ -215,7 +248,7 @@ class _Handler(BaseHTTPRequestHandler):
         except Exception:
             pass
 
-        def _delayed_shutdown(srv) -> None:
+        def _delayed_shutdown(srv: ThreadingHTTPServer) -> None:
             time.sleep(0.1)
             srv.shutdown()
 
@@ -224,18 +257,72 @@ class _Handler(BaseHTTPRequestHandler):
         ).start()
 
 
-def _bind_server(port: int, handler_cls) -> ThreadingHTTPServer:
-    """Bind ThreadingHTTPServer on 127.0.0.1, falling back to an ephemeral
-    port if the requested one is busy or unusable."""
+def _max_inflight() -> int:
+    raw = os.environ.get("ULTRA_PLAN_MAX_INFLIGHT")
+    if not raw:
+        return 8
     try:
-        return ThreadingHTTPServer(("127.0.0.1", port), handler_cls)
+        value = int(raw)
+    except ValueError:
+        return 8
+    return max(1, value)
+
+
+class BoundedThreadingHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer with a hard cap on concurrent in-flight requests.
+
+    When the bound is reached, additional requests are refused synchronously
+    with HTTP 503 (no new worker thread is spawned). This prevents resource
+    exhaustion from a flood of slow/parallel requests.
+    """
+
+    daemon_threads = True
+
+    def __init__(self, *args: object, max_inflight: int | None = None, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)  # type: ignore[arg-type]
+        cap = max_inflight if max_inflight is not None else _max_inflight()
+        self._inflight_sem = threading.BoundedSemaphore(cap)
+
+    def process_request(self, request: object, client_address: object) -> None:
+        if not self._inflight_sem.acquire(blocking=False):
+            try:
+                request.sendall(  # type: ignore[attr-defined]
+                    b"HTTP/1.1 503 Service Unavailable\r\n"
+                    b"Content-Type: application/json\r\n"
+                    b"Content-Length: 27\r\n"
+                    b"Connection: close\r\n"
+                    b"\r\n"
+                    b'{"error":"server busy"}\n'
+                )
+            except OSError:
+                pass
+            self.shutdown_request(request)  # type: ignore[arg-type]
+            return
+
+        def _wrapper() -> None:
+            try:
+                self.process_request_thread(request, client_address)  # type: ignore[arg-type]
+            finally:
+                self._inflight_sem.release()
+                self.shutdown_request(request)  # type: ignore[arg-type]
+
+        t = threading.Thread(target=_wrapper, daemon=self.daemon_threads)
+        t.start()
+
+
+def _bind_server(port: int, handler_cls: type[BaseHTTPRequestHandler]) -> ThreadingHTTPServer:
+    """Bind a BoundedThreadingHTTPServer on 127.0.0.1, falling back to an
+    ephemeral port if the requested one is busy or unusable."""
+    try:
+        return BoundedThreadingHTTPServer(("127.0.0.1", port), handler_cls)
     except OSError as e:
         if e.errno in (errno.EADDRINUSE, errno.EACCES):
-            print(
-                f"[ultra-plan] port {port} unavailable ({e.strerror or e}); "
-                "binding to an ephemeral port"
+            log.warning(
+                "port %d unavailable (%s); binding to an ephemeral port",
+                port,
+                e.strerror or e,
             )
-            return ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+            return BoundedThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
         raise
 
 
@@ -243,15 +330,19 @@ def serve(out_dir: Path, port: int, open_browser: bool = True) -> None:
     out_dir = out_dir.resolve()
     token = secrets.token_urlsafe(32)
     handler = type(
-        "BoundHandler", (_Handler,), {"out_dir": out_dir, "token": token}
+        "BoundHandler",
+        (_Handler,),
+        {"out_dir": out_dir, "token": token, "ratelimiter": TokenBucket()},
     )
     server = _bind_server(port, handler)
     bound_port = server.server_address[1]
     url = f"http://127.0.0.1:{bound_port}/"
-    print(f"[ultra-plan] review UI: {url}")
+    log.info("review UI: %s", url)
     if open_browser:
         threading.Thread(target=lambda: webbrowser.open(url), daemon=True).start()
     try:
         server.serve_forever()
+    except KeyboardInterrupt:
+        log.warning("review server interrupted, shutting down")
     finally:
         server.server_close()

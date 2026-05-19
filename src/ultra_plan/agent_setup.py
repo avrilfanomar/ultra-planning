@@ -116,15 +116,15 @@ def build_opencode_config(bundle: dict) -> tuple[dict, list[str]]:
 
     # Build initial values from allow list
     for broad_key in ("write", "edit", "bash"):
-        for entry in allow_list:
-            if _matches_key(entry, broad_key):
+        for allow_entry in allow_list:
+            if _matches_key(allow_entry, broad_key):
                 perm_block[broad_key] = "allow"
                 break
 
     # Deny overrides: any matching deny entry forces "ask"
     for broad_key in ("write", "edit", "bash"):
-        for entry in deny_list:
-            if _matches_key(entry, broad_key):
+        for deny_entry in deny_list:
+            if _matches_key(deny_entry, broad_key):
                 perm_block[broad_key] = "ask"
                 break
 

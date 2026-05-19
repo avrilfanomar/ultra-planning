@@ -21,7 +21,7 @@ def extract_bundle(text: str) -> dict:
         blob = re.sub(r"^```(?:json)?\s*", "", blob)
         blob = re.sub(r"\s*```$", "", blob)
     try:
-        bundle = json.loads(blob)
+        bundle: dict = json.loads(blob)
     except json.JSONDecodeError as e:
         raise BundleExtractionError(f"Bundle was not valid JSON: {e}\nPayload:\n{blob[:2000]}") from e
 

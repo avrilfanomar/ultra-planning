@@ -9,6 +9,8 @@ needs to run and authenticate. Anything resembling a secret (``*_TOKEN``,
 prompt-injected agent cannot exfiltrate it via WebFetch URLs.
 """
 
+from collections.abc import Mapping
+
 ALLOWED_ENV_KEYS = frozenset({
     "PATH",
     "HOME",
@@ -24,7 +26,7 @@ ALLOWED_ENV_KEYS = frozenset({
 ALLOWED_ENV_PREFIXES = ("CLAUDE_", "OPENCODE_", "LC_", "XDG_")
 
 
-def scrub_env(env: dict[str, str]) -> dict[str, str]:
+def scrub_env(env: Mapping[str, str]) -> dict[str, str]:
     return {
         k: v
         for k, v in env.items()

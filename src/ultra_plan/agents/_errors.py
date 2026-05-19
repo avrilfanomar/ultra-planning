@@ -33,6 +33,19 @@ def _extract_error_detail(exc: subprocess.CalledProcessError) -> str:
     return error_detail
 
 
+_RETRYABLE_NEEDLES = ("429", "rate limit", "econnreset", "connection reset", "timeout")
+
+
+def is_retryable(exc: subprocess.CalledProcessError) -> bool:
+    """Return True when *exc* looks like a transient/network failure worth retrying.
+
+    Matches the same vocabulary used by `classify_cli_error`: 429, "rate limit",
+    "ECONNRESET", "connection reset", and "timeout" anywhere in stdout/stderr.
+    """
+    detail = _extract_error_detail(exc).lower()
+    return any(needle in detail for needle in _RETRYABLE_NEEDLES)
+
+
 def classify_cli_error(
     exc: subprocess.CalledProcessError, *, cli_name: str
 ) -> RuntimeError:

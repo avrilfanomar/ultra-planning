@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ultra-plan"
-version = "0.2.0"
+version = "0.3.0"
 description = "Ultra planning: web-sourced skills/tools/permissions bundle for coding agents."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -35,7 +35,20 @@ Source = "https://github.com/avrilfanomar/ultra-planning"
 Issues = "https://github.com/avrilfanomar/ultra-planning/issues"
 
 [project.optional-dependencies]
-dev = ["pytest>=7", "pytest-cov>=4", "ruff>=0.6", "build>=1", "twine>=5", "tomli>=2"]
+dev = [
+    "pytest>=7",
+    "pytest-cov>=4",
+    "ruff>=0.6",
+    "build>=1",
+    "twine>=5",
+    "tomli>=2",
+    "cyclonedx-bom>=4",
+    "pre-commit>=3",
+]
+type = [
+    "mypy>=1.10",
+    "types-jsonschema",
+]
 
 [project.scripts]
 ultra-plan = "ultra_plan.cli:main"
@@ -52,6 +65,7 @@ select = ["E", "F", "I", "UP", "B"]
 # Module docstring sits below `from __future__ import annotations`, which must
 # remain the first statement.
 "src/ultra_plan/agents/_errors.py" = ["E402"]
+"src/ultra_plan/agents/_env.py" = ["E402"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -63,3 +77,37 @@ where = ["src"]
     "schema/*.json",
     "review/static/*",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+# Promote deprecation warnings from our own code to errors so we catch them
+# during testing. Third-party warnings (jsonschema, setuptools, …) stay
+# warnings to avoid CI flapping on patch releases of unrelated deps.
+filterwarnings = ["error::DeprecationWarning:ultra_plan.*"]
+
+[tool.coverage.run]
+source = ["src/ultra_plan"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]
+
+[tool.mypy]
+python_version = "3.10"
+disallow_untyped_defs = true
+no_implicit_optional = true
+warn_return_any = true
+warn_unused_ignores = true
+check_untyped_defs = true
+files = ["src/ultra_plan"]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false

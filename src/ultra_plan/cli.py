@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import sys
 from pathlib import Path
 
 from . import __version__
+from ._logging import configure_logging, get_logger
 from .executor import execute_bundle
 from .orchestrator import default_out_dir, review_existing, run_plan
 from .prompts import resolve_sources
@@ -15,6 +17,10 @@ _SUBCOMMANDS = {"run", "review", "execute"}
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="ultra-plan", description="Ultra planning over web sources.")
     p.add_argument("-v", "--version", action="version", version=f"ultra-plan {__version__}")
+    verbosity = p.add_mutually_exclusive_group()
+    verbosity.add_argument("-q", "--quiet", action="store_true", help="Suppress INFO logs.")
+    verbosity.add_argument("--verbose", action="store_true", help="Enable DEBUG logs for ultra_plan.*")
+    verbosity.add_argument("--debug", action="store_true", help="Enable DEBUG logs globally.")
     sub = p.add_subparsers(dest="command", required=True)
 
     run = sub.add_parser("run", help="Run the full ultra-plan flow.")
@@ -49,6 +55,21 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip the interactive confirmation prompt. Required with --headless.",
     )
+    exe.add_argument(
+        "--timeout",
+        type=int,
+        default=None,
+        metavar="SECONDS",
+        help="Headless subprocess timeout in seconds (default 1800; "
+             "overridden by ULTRA_PLAN_TIMEOUT env). 0 disables.",
+    )
+    exe.add_argument(
+        "--allow-external-cwd",
+        action="store_true",
+        help="Allow --cwd to point outside the bundle directory. By default "
+             "the working directory must be within the bundle dir to prevent "
+             "accidental execution against unrelated trees.",
+    )
 
     return p
 
@@ -68,6 +89,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(_normalize_argv(raw))
 
+    configure_logging(quiet=args.quiet, verbose=args.verbose, debug=args.debug)
+
     try:
         if args.command == "review":
             review_existing(Path(args.dir).resolve(), port=args.port, open_browser=not args.no_browser)
@@ -76,6 +99,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "execute":
             bundle_dir = Path(args.dir).resolve()
             cwd = Path(args.cwd).resolve() if args.cwd else None
+            if cwd is not None and not args.allow_external_cwd:
+                if not cwd.is_relative_to(bundle_dir):
+                    raise RuntimeError(
+                        f"--cwd {cwd} is outside bundle directory {bundle_dir}; "
+                        "pass --allow-external-cwd to override"
+                    )
             execute_bundle(
                 bundle_dir,
                 agent=args.agent,
@@ -83,6 +112,7 @@ def main(argv: list[str] | None = None) -> int:
                 cwd=cwd,
                 pass_env=list(args.pass_env or []),
                 yes=args.yes,
+                timeout=args.timeout,
             )
             return 0
 
@@ -97,9 +127,18 @@ def main(argv: list[str] | None = None) -> int:
             open_browser=not args.no_browser,
         )
         return 0
+    except KeyboardInterrupt:
+        get_logger(__name__).warning("aborted by user (SIGINT)")
+        return 130
     except FileNotFoundError as e:
         # Missing CLI / missing bundle -> usage error
-        print(f"error: {e}", file=sys.stderr)
+        if getattr(e, "errno", None) == errno.EACCES:
+            print(f"error: permission denied: {e}", file=sys.stderr)
+        else:
+            print(f"error: {e}", file=sys.stderr)
+        return 2
+    except PermissionError as e:
+        print(f"error: permission denied: {e}", file=sys.stderr)
         return 2
     except RuntimeError as e:
         print(f"error: {e}", file=sys.stderr)

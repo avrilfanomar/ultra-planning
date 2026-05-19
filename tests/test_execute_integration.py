@@ -106,6 +106,7 @@ def test_execute_with_custom_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
         "--agent", "claude",
         "--headless",
         "--yes",
+        "--allow-external-cwd",
         "--cwd", str(work_dir),
     ])
 
@@ -177,6 +178,7 @@ def test_execute_resolves_relative_paths(tmp_path: Path, monkeypatch: pytest.Mon
         "--agent", "claude",
         "--headless",
         "--yes",
+        "--allow-external-cwd",
         "--cwd", "./work",  # Relative path to work dir
     ])
 

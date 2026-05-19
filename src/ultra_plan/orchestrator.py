@@ -5,13 +5,16 @@ import re
 from collections.abc import Callable
 from pathlib import Path
 
+from ._logging import get_logger
 from .agents import claude as _claude
 from .agents import opencode as _opencode
 from .agents.claude import _PREFLIGHT_SETTINGS as _CLAUDE_PREFLIGHT_SETTINGS
 from .agents.opencode import _PREFLIGHT_CONFIG as _OPENCODE_PREFLIGHT_CONFIG
 from .prompts import render_prompt
 from .review.server import copy_static, serve
-from .validate import validate_bundle
+from .validate import validate_bundle_friendly
+
+log = get_logger(__name__)
 
 AgentFn = Callable[..., dict]
 AGENTS: dict[str, AgentFn] = {
@@ -43,12 +46,12 @@ def run_plan(
 ) -> Path:
     if agent not in AGENTS:
         raise ValueError(f"Unknown agent: {agent}")
-    print(f"[ultra-plan] agent={agent} sources={','.join(sources) or '(none)'}")
+    log.info("agent=%s sources=%s", agent, ",".join(sources) or "(none)")
     prompt = render_prompt(task, sources)
-    print(f"[ultra-plan] invoking {agent}...")
+    log.info("invoking %s...", agent)
     bundle = AGENTS[agent](prompt, allowed_tools=DEFAULT_ALLOWED_TOOLS)
     bundle.setdefault("task", task)
-    validate_bundle(bundle)
+    validate_bundle_friendly(bundle)
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "bundle.json").write_text(json.dumps(bundle, indent=2))
 
@@ -63,7 +66,7 @@ def run_plan(
         )
 
     copy_static(out_dir)
-    print(f"[ultra-plan] bundle written to {out_dir}")
+    log.info("bundle written to %s", out_dir)
     serve(out_dir, port=port, open_browser=open_browser)
     return out_dir
 
